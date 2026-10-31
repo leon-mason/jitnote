@@ -1,0 +1,169 @@
+:root {
+  color-scheme: light dark;
+}
+
+/*
+ * Layout avoids percentage heights: inside an Android WebView hosted by Compose the initial
+ * containing block can report 0px height. --app-height is set from window.innerHeight instead.
+ */
+html,
+body {
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--gn-background);
+  --gn-toolbar-height: 60px;
+}
+
+body.with-toolbar #editor {
+  padding-bottom: var(--gn-toolbar-height);
+}
+
+.milkdown {
+  --gn-background: #fbfdfb;
+  --crepe-color-background: #fbfdfb;
+  --crepe-color-on-background: #191c1b;
+  --crepe-color-surface: #f4f8f6;
+  --crepe-color-surface-low: #eaf2ee;
+  --crepe-color-on-surface: #191c1b;
+  --crepe-color-on-surface-variant: #404945;
+  --crepe-color-outline: #707975;
+  --crepe-color-primary: #1f6f5c;
+  --crepe-color-secondary: #cde9df;
+  --crepe-color-on-secondary: #04201a;
+  --crepe-color-inverse: #2d3130;
+  --crepe-color-on-inverse: #eff1ef;
+  --crepe-color-inline-code: #a8361d;
+  --crepe-color-error: #ba1a1a;
+  --crepe-color-hover: #eaf2ee;
+  --crepe-color-selected: #d5e6de;
+  --crepe-color-inline-area: #dfe8e3;
+  --crepe-base-font-size: 17px;
+  --crepe-font-title: system-ui, sans-serif;
+  --crepe-font-default: system-ui, sans-serif;
+  --crepe-font-code: ui-monospace, 'Droid Sans Mono', monospace;
+  --crepe-shadow-1: 0 1px 3px 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --crepe-shadow-2: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
+  background: var(--crepe-color-background);
+  color: var(--crepe-color-on-background);
+}
+
+body {
+  --gn-background: #fbfdfb;
+  --gn-on-background: #191c1b;
+  --gn-muted: #404945;
+  --gn-line: #dfe8e3;
+  --gn-active: #1f6f5c;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    --gn-background: #121614;
+    --gn-on-background: #e1e3e1;
+    --gn-muted: #bfc9c4;
+    --gn-line: #2b322f;
+    --gn-active: #84d6bd;
+  }
+
+  .milkdown {
+    --crepe-color-background: #121614;
+    --crepe-color-on-background: #e1e3e1;
+    --crepe-color-surface: #191c1b;
+    --crepe-color-surface-low: #1d2422;
+    --crepe-color-on-surface: #e1e3e1;
+    --crepe-color-on-surface-variant: #bfc9c4;
+    --crepe-color-outline: #89938f;
+    --crepe-color-primary: #84d6bd;
+    --crepe-color-secondary: #334b43;
+    --crepe-color-on-secondary: #cde9df;
+    --crepe-color-inverse: #e1e3e1;
+    --crepe-color-on-inverse: #2d3130;
+    --crepe-color-inline-code: #ffb4a1;
+    --crepe-color-error: #ffb4ab;
+    --crepe-color-hover: #1d2422;
+    --crepe-color-selected: #2b3a35;
+    --crepe-color-inline-area: #2b322f;
+    --crepe-shadow-1: 0 1px 2px rgba(255, 255, 255, 0.2), 0 1px 3px 1px rgba(255, 255, 255, 0.1);
+    --crepe-shadow-2: 0 1px 2px rgba(255, 255, 255, 0.2), 0 2px 6px 2px rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Crepe's desktop sizes are too large for a phone. */
+.milkdown .ProseMirror h1 {
+  font-size: 1.75em;
+  line-height: 1.3;
+  margin: 0.4em 0 0.6em;
+}
+
+.milkdown .ProseMirror h2 {
+  font-size: 1.4em;
+  line-height: 1.35;
+}
+
+.milkdown .ProseMirror h3 {
+  font-size: 1.2em;
+}
+
+.milkdown .ProseMirror {
+  padding: 16px 20px 96px;
+  line-height: 1.7;
+  /* The whole screen is tappable for typing, not just the lines that have text. */
+  min-height: calc(var(--app-height, 100vh) - var(--gn-toolbar-height));
+  box-sizing: border-box;
+}
+
+.milkdown img {
+  max-width: 100%;
+}
+
+#toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--gn-toolbar-height);
+  box-sizing: border-box;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 8px;
+  border-top: 1px solid var(--gn-line);
+  background: var(--gn-background);
+}
+
+#toolbar[hidden] {
+  display: none;
+}
+
+#toolbar button {
+  flex: 0 0 auto;
+  min-width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--gn-muted);
+  font: 11px system-ui, sans-serif;
+}
+
+#toolbar button:active {
+  background: var(--gn-line);
+  color: var(--gn-active);
+}
+
+#toolbar svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
