@@ -306,7 +306,7 @@ final class Notebooks: ObservableObject {
 
     private func token(_ account: Account) async throws -> String {
         let id = account.id
-        guard let token = try await Self.background({ TokenVault.load(account: id) }) else {
+        guard let token = try await Self.background({ try TokenVault.load(account: id) }) else {
             throw SyncError(.auth, "找不到这个账号的令牌，请到「云端账号」里重新连接")
         }
         return token

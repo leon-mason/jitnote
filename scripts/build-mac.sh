@@ -55,6 +55,11 @@ if [ "${1:-}" = "--test" ]; then
     exec "$BUILD/GitNotebookTests"
 fi
 
+# Replacing a running app breaks its code signature, and the Keychain then refuses it its tokens.
+if pgrep -qf "$(pwd)/$APP/Contents/MacOS/"; then
+    die "Git 笔记本正在运行，请先退出（⌘Q）再构建。"
+fi
+
 echo "编译 Git 笔记本 $VERSION …"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"

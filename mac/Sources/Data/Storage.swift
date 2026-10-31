@@ -40,7 +40,7 @@ enum TokenVault {
     }
 
     static func save(_ token: String, account: String) throws { testTokens[account] = token }
-    static func load(account: String) -> String? { testTokens[account] }
+    static func load(account: String) throws -> String? { testTokens[account] }
     static func delete(account: String) { testTokens[account] = nil }
     #else
 
@@ -57,7 +57,8 @@ enum TokenVault {
         guard status == errSecSuccess else { throw SyncError(.other, "无法把令牌保存到钥匙串（\(status)）") }
     }
 
-    static func load(account: String) -> String? {
+    /// The token, or nil when none was saved. Throws when the Keychain refuses to hand it out.
+    static func load(account: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -66,7 +67,12 @@ enum TokenVault {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        // E.g. the app was replaced while running, or the person clicked "Deny" in the Keychain prompt.
+        guard status == errSecSuccess, let data = result as? Data else {
+            throw SyncError(.auth, "钥匙串没有允许读取这个账号的令牌（错误码 \(status)）。请退出后重新打开 App 再试，系统询问时输入电脑密码并选「始终允许」；还不行的话，到「云端账号」里重新连接。")
+        }
         return String(data: data, encoding: .utf8)
     }
 
