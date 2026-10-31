@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The logo in outline for themed icons: a ring-bound page with a commit graph and a sync badge.
+     Drawn over the same spots as ic_launcher_foreground, so it has to be redrawn when the logo changes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Page with a folded corner, left open where the badge sits. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M74,55V40.4L63.4,30.3H37.8a2,2 0,0 0,-2 2V73.4a2,2 0,0 0,2 2H63M63.4,30.3V38.4a2,2 0,0 0,2 2H74" />
+    <!-- Binder rings. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M32.3,39.5H37.8M32.3,48.2H37.8M32.3,57.1H37.8" />
+    <!-- Text lines. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:pathData="M44.5,38.2H58.7M44.5,43.7H64.6M44.5,49.2H52.9" />
+    <!-- Commit graph. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.9"
+        android:pathData="M46.35,59.1a2.75,2.75 0,1 0,5.5 0a2.75,2.75 0,1 0,-5.5 0M46.35,69.2a2.75,2.75 0,1 0,5.5 0a2.75,2.75 0,1 0,-5.5 0M58.75,52.5a2.75,2.75 0,1 0,5.5 0a2.75,2.75 0,1 0,-5.5 0" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.7"
+        android:pathData="M49.1,62.8V65.5M52.37,57.36L58.23,54.24" />
+    <!-- Sync badge. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M63.1,67.7a9.3,9.3 0,1 0,18.6 0a9.3,9.3 0,1 0,-18.6 0M67.7,65.99A5,5 0,0 1,77.1 65.99M77.1,69.41A5,5 0,0 1,67.7 69.41" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M77.85,68.06L78.77,64.75L75.01,66.11ZM66.95,67.34L66.03,70.65L69.79,69.29Z" />
+</vector>

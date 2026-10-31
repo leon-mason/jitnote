@@ -1,3 +1,4 @@
 <resources>
-    <color name="ic_launcher_background">#1F6F5C</color>
+    <!-- Hidden behind the full-bleed foreground; the logo's navy, in case a launcher shows it. -->
+    <color name="ic_launcher_background">#23293A</color>
 </resources>
