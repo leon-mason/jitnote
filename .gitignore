@@ -6,6 +6,7 @@
 
 # Android / Gradle
 .gradle/
+.kotlin/
 build/
 local.properties
 *.keystore

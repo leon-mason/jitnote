@@ -2,10 +2,15 @@
 
 把笔记放进**你自己的** Gitee / GitHub 私有仓库里的手机笔记 App。完全开源，没有服务器，不收集任何数据。
 
+> An open-source Android notes app that stores every notebook as a real Git repository in your own GitHub / Gitee account. No server, no tracking. The UI is currently Chinese only.
+
 - **每个笔记本就是一个真正的 Git 仓库**：手机上有完整的 `.git`、真实的提交历史。在电脑上 `git clone` 下来，用任何编辑器或 AI 工具（Cursor、Claude Code……）改完推上去，手机点一下同步就能拿到。
 - **只有一个「同步」按钮**：自动保存、自动记录版本，同步 = 提交 → 拉取 → 合并 → 推送。从不强推。
 - **冲突不丢数据**：同一篇笔记两边都改了，自动保留较新的版本；另一个版本留在历史里，一键就能换回去。
 - **所见即所得**：用户看到的是普通笔记（标题、加粗、列表、待办、表格），存下来的是标准 Markdown，Obsidian / Typora 也能直接打开。
+- **能用已有的仓库**：Obsidian、Typora 的笔记仓库可以直接拿来用，原有文件和图片写法原样保留。
+
+> **项目状态**：早期版本（0.1.0），目前只有 Android 客户端，还没有发布安装包，需要自己构建（见[开发](#开发)）。欢迎试用和反馈，重要笔记请先在电脑上留一份备份。
 
 ## 仓库结构
 
@@ -19,13 +24,22 @@
 
 ## 使用方法（Android）
 
+支持 Android 8.0 及以上。
+
 1. 安装 App，点「连接云端账号」，按页面上的步骤在 Gitee（推荐）或 GitHub 生成一个令牌，粘贴进来。
 2. 点「添加笔记本 → 新建」，起个名字。App 会在你的账号里建一个**私有**仓库。
 3. 写笔记。写完返回就自动保存；点右上角的同步按钮上传到云端。
 4. 已经有放笔记的仓库（比如 Obsidian 的）？「添加笔记本 → 用已有的」里直接选它，原有文件原样保留。
 5. 换手机或第二台手机：连接同一个账号后，同样在「用已有的」里挑选笔记本。
 
-令牌所需权限：Gitee 私人令牌保持默认勾选（至少 `user_info`、`projects`）；GitHub classic token 勾选 `repo`。令牌只用 Android Keystore 加密保存在手机上。
+删除笔记本只删除手机上的副本，云端仓库不受影响。
+
+### 令牌和隐私
+
+- 令牌所需权限：Gitee 私人令牌保持默认勾选（至少 `user_info`、`projects`）；GitHub classic token 勾选 `repo`。
+- 这些权限能读写你账号下的**所有**仓库，请只在自己的手机上使用，不用时可以随时在 Gitee / GitHub 的设置里删除令牌。
+- 令牌用 Android Keystore 加密后只保存在手机上，App 关闭了系统备份。
+- App 只和你自己的 Gitee / GitHub 通信，不连接任何其他服务器，没有统计和广告。
 
 ## 开发
 
@@ -40,7 +54,7 @@ cd android
 ./gradlew :app:assembleRelease     # 正式包（目前用调试签名，方便自己安装）
 ```
 
-`android/app/src/main/assets/editor/` 是 `editor/` 的构建产物，已经提交到仓库，所以只改 Android 代码时不需要 Node。
+`android/app/src/main/assets/editor/` 是 `editor/` 的构建产物，已经提交到仓库，所以只改 Android 代码时不需要 Node。改了 `editor/` 后记得重新 `npm run build` 并一起提交。
 
 ### 编辑器
 
@@ -58,6 +72,12 @@ npm run build   # 输出到 android/app/src/main/assets/editor/
 
 debug 包允许用明文 http 访问模拟器宿主机 `10.0.2.2`（见 `android/app/src/debug/`），方便用本机的 `git http-backend` 做端到端测试，正式包不受影响。
 
+## 参与贡献
+
+欢迎提 Issue 和 Pull Request。改动同步逻辑或编辑器前，请先读 [docs/design.md](docs/design.md)：界面不出现 Git 术语、从不强推、打开再保存不改变笔记，这几条是硬性约定，相关测试需要保持通过。
+
 ## 许可证
 
-[Apache License 2.0](LICENSE)
+本项目使用 [Apache License 2.0](LICENSE)。
+
+用到的主要第三方组件及其许可证：[JGit](https://www.eclipse.org/jgit/)（EDL 1.0）、[Milkdown](https://milkdown.dev/)（MIT）、[DOMPurify](https://github.com/cure53/DOMPurify)（Apache 2.0 / MPL 2.0）、AndroidX / Jetpack Compose（Apache 2.0）。
