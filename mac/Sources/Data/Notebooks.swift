@@ -54,7 +54,7 @@ final class Notebooks: ObservableObject {
         if provider == .other {
             let login = (username ?? "").trimmingCharacters(in: .whitespaces)
             let mail = (email ?? "").trimmingCharacters(in: .whitespaces)
-            user = HostingApi.User(login: login, email: mail.isEmpty ? "\(login)@users.noreply.gitnotebook" : mail)
+            user = HostingApi.User(login: login, email: mail.isEmpty ? "\(login)@users.noreply.jitnote" : mail)
         } else {
             user = try await HostingApi.verify(provider, token: token)
         }
@@ -94,7 +94,7 @@ final class Notebooks: ObservableObject {
             }
         }
         let notebook = try await download(name: name, account: account, url: created!.cloneUrl, onProgress: onProgress)
-        let meta = dir(notebook).appendingPathComponent(".gitnote/notebook.json")
+        let meta = dir(notebook).appendingPathComponent(".jitnote/notebook.json")
         try FileManager.default.createDirectory(at: meta.deletingLastPathComponent(), withIntermediateDirectories: true)
         let info: [String: Any] = [
             "schema_version": 1,
@@ -120,7 +120,7 @@ final class Notebooks: ObservableObject {
     /// Downloads an existing repository as a notebook.
     func importNotebook(url: String, account: Account, name: String, onProgress: @escaping (String) -> Void) async throws -> Notebook {
         var notebook = try await download(name: name, account: account, url: url.trimmingCharacters(in: .whitespaces), onProgress: onProgress)
-        let meta = dir(notebook).appendingPathComponent(".gitnote/notebook.json")
+        let meta = dir(notebook).appendingPathComponent(".jitnote/notebook.json")
         if name.trimmingCharacters(in: .whitespaces).isEmpty,
            let data = try? Data(contentsOf: meta),
            let display = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["display_name"] as? String {

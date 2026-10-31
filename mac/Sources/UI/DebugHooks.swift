@@ -4,7 +4,7 @@ import WebKit
 
 /// Test-only remote control, compiled in by `scripts/build-mac.sh --debug`: lets automated checks
 /// drive the window and photograph it, on machines that grant no screen-recording or accessibility
-/// access. Commands arrive as distributed notifications named "GitNotebook.debug":
+/// access. Commands arrive as distributed notifications named "Jitnote.debug":
 ///   snapshot <path-prefix>   every visible window → <prefix>-<n>.png
 ///   account <login> <password>   connects an "other" account (real code path, token in Keychain)
 ///   import <url>              downloads a notebook with the first account (real code path)
@@ -15,12 +15,12 @@ import WebKit
 ///   select <note path> | folder <folder path> | sync   handled by the main window
 ///   settings | tab <general|notebooks|accounts|about>   opens Settings / picks its tab
 extension Notification.Name {
-    static let debugCommand = Notification.Name("GitNotebook.debugCommand")
+    static let debugCommand = Notification.Name("Jitnote.debugCommand")
 }
 
 enum DebugHooks {
     static func install() {
-        DistributedNotificationCenter.default().addObserver(forName: .init("GitNotebook.debug"), object: nil, queue: .main) { note in
+        DistributedNotificationCenter.default().addObserver(forName: .init("Jitnote.debug"), object: nil, queue: .main) { note in
             guard let command = note.object as? String else { return }
             MainActor.assumeIsolated { run(command) }
         }

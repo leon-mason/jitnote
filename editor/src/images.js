@@ -5,7 +5,7 @@
 //   Obsidian            ![猫](附件/cat.png)              relative to the notebook root
 //   Obsidian            ![[cat.png]]  ![[cat.png|300]]   just a file name, found anywhere
 // The host knows the files, so it resolves a path to "notebook-relative path or nothing"
-// (GitNotebookHost.resolveFile); the editor only ever displays, never rewrites, the reference.
+// (JitnoteHost.resolveFile); the editor only ever displays, never rewrites, the reference.
 
 import { $nodeSchema, $remark } from '@milkdown/kit/utils'
 

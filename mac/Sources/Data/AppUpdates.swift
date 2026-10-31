@@ -110,7 +110,7 @@ final class AppUpdates: ObservableObject {
     }
 
     private func fetch(_ release: Release) async throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("GitNotebook-update-\(release.version)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Jitnote-update-\(release.version)")
         try? FileManager.default.removeItem(at: dir)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let download = dir.appendingPathComponent(release.downloadUrl.lastPathComponent)

@@ -1,12 +1,12 @@
-// GitNotebook note editor: a WYSIWYG view over a plain Markdown file.
+// Jitnote note editor: a WYSIWYG view over a plain Markdown file.
 //
 // Host contract (Android today, other clients later):
-//   host → editor   window.GitNotebookEditor.load(markdown, { readonly, baseUrl, notebookUrl })
-//                   window.GitNotebookEditor.getMarkdown()  → current Markdown
-//   editor → host   window.GitNotebookHost.onReady()
-//                   window.GitNotebookHost.onChange(markdown)   (debounced, only after real edits)
-//                   window.GitNotebookHost.resolveFile(path)    → notebook-relative path or "" (sync)
-//                   window.GitNotebookHost.openImage(path)      (user tapped an image)
+//   host → editor   window.JitnoteEditor.load(markdown, { readonly, baseUrl, notebookUrl })
+//                   window.JitnoteEditor.getMarkdown()  → current Markdown
+//   editor → host   window.JitnoteHost.onReady()
+//                   window.JitnoteHost.onChange(markdown)   (debounced, only after real edits)
+//                   window.JitnoteHost.resolveFile(path)    → notebook-relative path or "" (sync)
+//                   window.JitnoteHost.openImage(path)      (user tapped an image)
 // Without a host (e.g. `npm run dev` in a browser) a sample note is loaded.
 
 import { CrepeBuilder } from '@milkdown/crepe/builder'
@@ -43,7 +43,7 @@ import '@milkdown/crepe/theme/common/toolbar.css'
 import './style.css'
 import { createImageSupport } from './images.js'
 
-const host = window.GitNotebookHost
+const host = window.JitnoteHost
 const root = document.getElementById('editor')
 const toolbar = document.getElementById('toolbar')
 
@@ -231,10 +231,10 @@ for (const button of buttons) {
 
 // ------------------------------------------------------------------ host bridge
 
-window.GitNotebookEditor = { load, getMarkdown }
+window.JitnoteEditor = { load, getMarkdown }
 
 if (host) {
   host.onReady()
 } else {
-  load('# 示例笔记\n\n这是 **GitNotebook** 的编辑器。\n\n- [ ] 买牛奶\n- [x] 写日记\n\n> 引用一段话\n')
+  load('# 示例笔记\n\n这是 **Jitnote** 的编辑器。\n\n- [ ] 买牛奶\n- [x] 写日记\n\n> 引用一段话\n')
 }

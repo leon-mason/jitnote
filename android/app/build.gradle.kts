@@ -12,11 +12,11 @@ plugins {
 }
 
 android {
-    namespace = "io.github.leonmason.gitnotebook"
+    namespace = "io.github.leonmason.jitnote"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.leonmason.gitnotebook"
+        applicationId = "io.github.leonmason.jitnote"
         minSdk = 26
         targetSdk = 35
         versionName = appVersion

@@ -7,14 +7,14 @@
 
     <!-- Tokens are encrypted with a device-bound Keystore key, so backups could not be restored anyway. -->
     <application
-        android:name=".GitNotebookApp"
+        android:name=".JitnoteApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.GitNotebook">
+        android:theme="@style/Theme.Jitnote">
         <activity
             android:name=".MainActivity"
             android:exported="true"

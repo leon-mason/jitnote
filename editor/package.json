@@ -1,5 +1,5 @@
 {
-  "name": "gitnotebook-editor",
+  "name": "jitnote-editor",
   "private": true,
   "version": "0.1.0",
   "description": "WYSIWYG note editor shared by all Jitnote clients. Reads and writes plain Markdown.",

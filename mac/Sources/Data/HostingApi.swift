@@ -16,7 +16,7 @@ enum HostingApi {
     /// A repository the account can access, as shown when choosing one to turn into a notebook.
     struct RemoteRepo: Identifiable, Hashable {
         let path: String
-        /// From the "[GitNotebook] name" description when this app created it, else the repository name.
+        /// From the "[Jitnote] name" description when this app created it, else the repository name.
         let displayName: String
         let cloneUrl: String
         let isNotebook: Bool
@@ -31,7 +31,7 @@ enum HostingApi {
 
     struct NameTaken: Error {}
 
-    static let notebookMark = "[GitNotebook]"
+    static let notebookMark = "[Jitnote]"
     private static let pageSize = 100
     private static let maxPages = 5
 

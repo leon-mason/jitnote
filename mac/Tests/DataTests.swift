@@ -167,8 +167,8 @@ enum AppUpdatesTests {
               "tag_name": "v0.3.0", "draft": false, "prerelease": false,
               "body": "· 有 Mac 版了\\r\\n· 修复同步偶尔失败\\r\\n",
               "assets": [
-                {"name": "git-notebook-0.3.0.apk", "size": 2400000, "browser_download_url": "https://example.com/a.apk"},
-                {"name": "GitNotebook-mac-0.3.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"}
+                {"name": "jitnote-0.3.0.apk", "size": 2400000, "browser_download_url": "https://example.com/a.apk"},
+                {"name": "Jitnote-mac-0.3.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"}
               ]
             }
             """))!
@@ -201,8 +201,8 @@ enum AppUpdatesTests {
             {
               "tag_name": "v0.4.0",
               "assets": [
-                {"name": "GitNotebook-mac-0.4.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"},
-                {"name": "GitNotebook-mac-0.4.0.dmg", "size": 9500000, "browser_download_url": "https://example.com/m.dmg"}
+                {"name": "Jitnote-mac-0.4.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"},
+                {"name": "Jitnote-mac-0.4.0.dmg", "size": 9500000, "browser_download_url": "https://example.com/m.dmg"}
               ]
             }
             """))!
@@ -212,7 +212,7 @@ enum AppUpdatesTests {
         },
         TestCase("ignoresReleasesWithoutAMacBuildOrNotYetPublic") { _ in
             let apkOnly = #"[{"name": "a.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"}]"#
-            let mac = #"[{"name": "GitNotebook-mac-1.zip", "size": 1, "browser_download_url": "https://example.com/m.zip"}]"#
+            let mac = #"[{"name": "Jitnote-mac-1.zip", "size": 1, "browser_download_url": "https://example.com/m.zip"}]"#
             try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "assets": \#(apkOnly)}"#)) == nil)
             try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "prerelease": true, "assets": \#(mac)}"#)) == nil)
             try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "draft": true, "assets": \#(mac)}"#)) == nil)
@@ -231,9 +231,9 @@ enum HostingApiTests {
               "html_url": "https://gitee.com/zhl/notes.git",
               "pushed_at": "2026-10-28T10:00:00+08:00", "updated_at": "2026-10-29T10:00:00+08:00"
             }, {
-              "path": "gitnote-ab12", "name": "gitnote-ab12", "owner": {"login": "zhl"},
-              "description": "[GitNotebook] 读书笔记", "private": true,
-              "html_url": "https://gitee.com/zhl/gitnote-ab12.git"
+              "path": "jitnote-ab12", "name": "jitnote-ab12", "owner": {"login": "zhl"},
+              "description": "[Jitnote] 读书笔记", "private": true,
+              "html_url": "https://gitee.com/zhl/jitnote-ab12.git"
             }]
             """.utf8)) as! [Any])
             try expectEqual(repos[0].path, "notes")

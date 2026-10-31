@@ -330,7 +330,7 @@ final class NotebookGit: @unchecked Sendable {
 
     private var gitDir: URL { workTree.appendingPathComponent(".git") }
 
-    private var conflictFile: URL { gitDir.appendingPathComponent("gitnotebook/conflicts.json") }
+    private var conflictFile: URL { gitDir.appendingPathComponent("jitnote/conflicts.json") }
 
     private func withRepo<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         var repo: OpaquePointer?

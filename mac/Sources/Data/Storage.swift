@@ -25,13 +25,13 @@ final class StateStore {
 /// Access tokens in the login Keychain, readable only by this app on this Mac.
 /// Reading may show a Keychain prompt (e.g. after an update), so never call it on the main thread.
 enum TokenVault {
-    private static let service = "io.github.leonmason.gitnotebook"
+    private static let service = "io.github.leonmason.jitnote"
 
     #if GN_DEBUG_HOOKS
     // Test builds keep tokens in a file next to their state, so automated runs never touch the real Keychain.
     private static var testFile: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("GitNotebook/test-tokens.json")
+            .appendingPathComponent("Jitnote/test-tokens.json")
     }
 
     private static var testTokens: [String: String] {

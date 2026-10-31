@@ -21,7 +21,7 @@
 
 2. **真 Git。** 每个笔记本是完整的 Git 工作副本，有真实的提交，电脑上的任何 Git 工具都能接着用。不走平台 REST API 逐文件同步（那样本地没有 `.git`）。REST 只用于验证令牌、建私有仓库、列出账号里的仓库。
 3. **没有服务器。** 令牌只存在设备上，App 只连接用户自己的 Git 托管平台。
-4. **不改动用户的东西。** 遵守仓库已有的 `.gitignore`；App 自己的元数据只放在 `.gitnote/`（随仓库同步）和 `.git/gitnotebook/`（仅本机）。
+4. **不改动用户的东西。** 遵守仓库已有的 `.gitignore`；App 自己的元数据只放在 `.jitnote/`（随仓库同步）和 `.git/jitnote/`（仅本机）。
 
 ## 同步规则
 
@@ -33,7 +33,7 @@
 4. 有冲突时逐个文件处理：
    - 两边都改了：保留**最后修改时间较新**的一边（比较合并基点之后各自最后一次改动该文件的提交的作者时间），时间相同时保留云端。
    - 一边删除、一边修改：保留修改的那一边（不因删除丢内容）。
-   - 被放弃的版本仍在历史里，并记录到 `.git/gitnotebook/conflicts.json`，界面提供「看看另一个」「换成另一个」「就用现在的」。
+   - 被放弃的版本仍在历史里，并记录到 `.git/jitnote/conflicts.json`，界面提供「看看另一个」「换成另一个」「就用现在的」。
    - 合并提交说明：`同步：合并云端修改（N 个文件两边都改了，已采用较新版本）`。
 5. `push`。被拒（期间别人推送了）就回到第 2 步，最多 3 次。**从不强推。**
 
@@ -42,7 +42,7 @@
 - 编辑器离开笔记、App 切到后台时自动保存并提交；同步前再兜底提交一次。
 - 同步进行时编辑器只显示“正在同步”，结束后重新加载文件，避免同步过程中写文件。
 - 上次同步中途崩溃（仓库停在 MERGING 状态或残留 `index.lock`）时，下次同步先放弃未完成的合并再重来；本地改动在合并前已经提交，所以不会丢。
-- 新建笔记本：在平台上建**私有**仓库（`auto_init`），仓库名由笔记本名转成英文，纯中文名用 `notes-xxxxxx`；仓库描述写 `[GitNotebook] 显示名`，用于在第二台设备上识别；`.gitnote/notebook.json` 记录显示名等信息。
+- 新建笔记本：在平台上建**私有**仓库（`auto_init`），仓库名由笔记本名转成英文，纯中文名用 `notes-xxxxxx`；仓库描述写 `[Jitnote] 显示名`，用于在第二台设备上识别；`.jitnote/notebook.json` 记录显示名等信息。
 - 删除笔记本只删除本机副本，不删除云端仓库。
 
 ## 首页
@@ -63,7 +63,7 @@
 - 「添加笔记本 → 用已有的」列出账号能访问的**所有**仓库（自己的、协作的、组织的，GitHub / Gitee 各最多 500 个），本 App 建的笔记本排在前面，其余按最近更新排序；超过 6 个时出现搜索框。每项写明“仅自己可见 / 所有人可见”、多久前更新、属于哪个组织。已经在手机上的标为“已在手机上”，不能重复添加。
 - 点选后只问一个问题：在 App 里叫什么（默认用仓库名）。并用大白话说明“原有文件原样保留，手机上写的会同步回去”；公开仓库、超过 50 MB 的仓库会额外提醒。
 - 也可以粘贴网址：浏览器地址栏里的网址（哪怕是 `…/tree/master/某个文件夹`）会自动换成正确的下载地址。
-- 导入**不写入任何东西**：不加 `.gitnote/`，不改仓库描述，不改分支（沿用仓库的默认分支，`master` 也可以）。以 `.` 开头的文件夹（如 `.obsidian`）在 App 里隐藏但照常同步。
+- 导入**不写入任何东西**：不加 `.jitnote/`，不改仓库描述，不改分支（沿用仓库的默认分支，`master` 也可以）。以 `.` 开头的文件夹（如 `.obsidian`）在 App 里隐藏但照常同步。
 - 文件列表按修改时间排；同一次下载的文件时间相同，按名字排。
 
 ## 编辑器
@@ -79,8 +79,8 @@
   - 只有用户真正编辑后才回写文件。
   - `editor/test/roundtrip.test.js` 锁定以上行为（`npm test`）。已知仍会变化的：引用式链接会变成行内链接；未对齐的表格第一次保存会被对齐。
 - 宿主接口（各平台一致）：
-  - 宿主 → 编辑器：`window.GitNotebookEditor.load(markdown, { readonly, baseUrl })`、`window.GitNotebookEditor.getMarkdown()`
-  - 编辑器 → 宿主：`window.GitNotebookHost.onReady()`、`window.GitNotebookHost.onChange(markdown)`（防抖，仅在真实编辑后）
+  - 宿主 → 编辑器：`window.JitnoteEditor.load(markdown, { readonly, baseUrl })`、`window.JitnoteEditor.getMarkdown()`
+  - 编辑器 → 宿主：`window.JitnoteHost.onReady()`、`window.JitnoteHost.onChange(markdown)`（防抖，仅在真实编辑后）
 - 只有用户真正改过才回写文件；只是打开、看完、返回，不会产生任何修改或提交。
 
 ## 图片
@@ -93,7 +93,7 @@
 | `![猫](附件/cat.png)`、`/附件/cat.png` | Obsidian | 相对笔记本根目录 |
 | `![[cat.png]]`、`![[cat.png\|300]]` | Obsidian | 按文件名在整个笔记本里找，路径最短的优先；`\|300` 设显示宽度 |
 
-- 查找由宿主完成（`GitNotebookHost.resolveFile`，Android 见 `NoteAssets.kt`），永远不会解析到笔记本外面或 `.git` 里。找到的图片经 `https://appassets.androidplatform.net/notebook/` 从笔记本目录读取。
+- 查找由宿主完成（`JitnoteHost.resolveFile`，Android 见 `NoteAssets.kt`），永远不会解析到笔记本外面或 `.git` 里。找到的图片经 `https://appassets.androidplatform.net/notebook/` 从笔记本目录读取。
 - `![[图片]]` 在编辑器里是一个独立的图片节点，保存时原样写回 `![[…]]`；`![[另一篇笔记]]` 这类非图片嵌入保持文字。
 - 点笔记里的图片、或文件列表里的图片文件，打开全屏查看：双指缩放、双击放大/还原、拖动。超大图片按最长边 4096 像素解码，避免内存不足。文件列表里图片显示缩略图。
 

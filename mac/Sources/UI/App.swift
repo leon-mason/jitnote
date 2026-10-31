@@ -11,7 +11,7 @@ final class AppModel {
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("GitNotebook", isDirectory: true)
+            .appendingPathComponent("Jitnote", isDirectory: true)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         let store = StateStore(file: support.appendingPathComponent("state.json"))
         notebooks = Notebooks(store: store, root: support.appendingPathComponent("notebooks", isDirectory: true), appVersion: version)
@@ -21,11 +21,11 @@ final class AppModel {
 
 /// Menu commands reach the main window through these notifications.
 extension Notification.Name {
-    static let newNote = Notification.Name("GitNotebook.newNote")
-    static let newFolder = Notification.Name("GitNotebook.newFolder")
-    static let syncNow = Notification.Name("GitNotebook.syncNow")
+    static let newNote = Notification.Name("Jitnote.newNote")
+    static let newFolder = Notification.Name("Jitnote.newFolder")
+    static let syncNow = Notification.Name("Jitnote.syncNow")
     /// Save the open note and record a version, e.g. when the app goes to the background.
-    static let saveNow = Notification.Name("GitNotebook.saveNow")
+    static let saveNow = Notification.Name("Jitnote.saveNow")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct GitNotebookApp: App {
+struct JitnoteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var notebooks = AppModel.shared.notebooks
     @StateObject private var updates = AppModel.shared.updates

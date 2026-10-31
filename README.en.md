@@ -83,7 +83,7 @@ No Xcode needed — just the Command Line Tools and Homebrew's libgit2:
 ```bash
 brew install libgit2
 scripts/build-mac.sh --test   # sync engine and other tests (the same cases as Android's)
-scripts/build-mac.sh --run    # builds mac/build/GitNotebook.app and opens it
+scripts/build-mac.sh --run    # builds mac/build/Jitnote.app and opens it
 ```
 
 `--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/superpowers/specs/2026-10-31-mac-client-design.md) (in Chinese).

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GitNotebook"
+rootProject.name = "Jitnote"
 include(":app")

@@ -33,7 +33,7 @@
 | Git | libgit2（Homebrew 预编译），通过 `mac/CGit2` 模块调用，dylib 打包进 App |
 | 同步规则 | 逐条移植 `NotebookGit.kt`，并移植 `NotebookGitTest.kt` 的全部用例 |
 | 令牌 | 钥匙串（`kSecClassGenericPassword`，仅本机） |
-| 本地数据 | `~/Library/Application Support/GitNotebook/`：`state.json`、`notebooks/<id>/` |
+| 本地数据 | `~/Library/Application Support/Jitnote/`：`state.json`、`notebooks/<id>/` |
 | 编辑器 | `WKWebView` 加载 `android/app/src/main/assets/editor/` 的构建产物；自定义 scheme 提供编辑器文件和笔记本里的图片；`resolveFile` 需要同步返回，用 `prompt()` 通道实现 |
 | 构建 | `scripts/build-mac.sh` 直接调用 `swiftc`（本机 SwiftPM 不可用，也不需要 Xcode），组装 `.app`、打包 dylib、ad-hoc 签名、打 zip；`--test` 编译并运行测试 |
 

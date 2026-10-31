@@ -2,10 +2,10 @@
 #
 # 不用 Xcode 构建 Mac 版：直接调用 swiftc，Git 用 Homebrew 的 libgit2（brew install libgit2）。
 #
-#   scripts/build-mac.sh          → mac/build/GitNotebook.app，以及发布用的 Jitnote-mac-apple-silicon-<版本>.dmg 和 .zip
+#   scripts/build-mac.sh          → mac/build/Jitnote.app，以及发布用的 Jitnote-mac-apple-silicon-<版本>.dmg 和 .zip
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
-#   scripts/build-mac.sh --debug  → mac/build/GitNotebookDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
+#   scripts/build-mac.sh --debug  → mac/build/JitnoteDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
 #
 # 编辑器用的是 android/app/src/main/assets/editor/（editor/ 的构建产物），和 Android 完全相同。
 
@@ -14,9 +14,9 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 MAC=mac
 BUILD="$MAC/build"
-APP="$BUILD/GitNotebook.app"
+APP="$BUILD/Jitnote.app"
 # The test build goes next to the real one, so a copy that is open stays untouched.
-[ "${1:-}" = "--debug" ] && APP="$BUILD/GitNotebookDebug.app"
+[ "${1:-}" = "--debug" ] && APP="$BUILD/JitnoteDebug.app"
 VERSION=$(sed -n 's/^val appVersion = "\(.*\)"$/\1/p' android/app/build.gradle.kts)
 IFS=. read -r major minor patch <<< "$VERSION"
 BUILD_NUMBER=$((major * 10000 + minor * 100 + patch))
@@ -53,8 +53,8 @@ SWIFT_FLAGS=(-sdk "$SDK" -target "$TARGET" -swift-version 5 -I "$MAC/CGit2" -Xcc
 
 if [ "${1:-}" = "--test" ]; then
     swiftc "${SWIFT_FLAGS[@]}" -Xlinker -rpath -Xlinker "$GIT2/lib" \
-        "$MAC"/Sources/Core/*.swift "$MAC"/Sources/Data/*.swift "$MAC"/Tests/*.swift -o "$BUILD/GitNotebookTests"
-    exec "$BUILD/GitNotebookTests"
+        "$MAC"/Sources/Core/*.swift "$MAC"/Sources/Data/*.swift "$MAC"/Tests/*.swift -o "$BUILD/JitnoteTests"
+    exec "$BUILD/JitnoteTests"
 fi
 
 # Replacing a running app breaks its code signature, and the Keychain then refuses it its tokens.
@@ -70,7 +70,7 @@ EXTRA=()
 swiftc "${SWIFT_FLAGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} -O -parse-as-library \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     "$MAC"/Sources/Core/*.swift "$MAC"/Sources/Data/*.swift "$MAC"/Sources/UI/*.swift \
-    -o "$APP/Contents/MacOS/GitNotebook"
+    -o "$APP/Contents/MacOS/Jitnote"
 
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" -e "s/__MIN_MACOS__/$MIN_MACOS/" \
     "$MAC/Resources/Info.plist" > "$APP/Contents/Info.plist"
@@ -94,7 +94,7 @@ bundle_libs() {
         fi
     done
 }
-bundle_libs "$APP/Contents/MacOS/GitNotebook"
+bundle_libs "$APP/Contents/MacOS/Jitnote"
 # @rpath inside the libraries resolves against the app's rpath, so they find each other in Frameworks.
 
 # 没有苹果开发者账号，只做本机签名（ad-hoc）；首次打开需要右键「打开」。

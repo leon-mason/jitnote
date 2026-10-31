@@ -9,7 +9,7 @@ const opened = []
 
 beforeAll(async () => {
   document.body.innerHTML = '<div id="editor"></div><nav id="toolbar" hidden></nav>'
-  window.GitNotebookHost = {
+  window.JitnoteHost = {
     onReady() {},
     onChange() {},
     resolveFile: (path) => files[path] ?? '',
@@ -20,7 +20,7 @@ beforeAll(async () => {
   Range.prototype.getClientRects = () => []
   Range.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 })
   await import('../src/main.js')
-  editor = window.GitNotebookEditor
+  editor = window.JitnoteEditor
 })
 
 async function roundTrip(markdown) {

@@ -6,13 +6,13 @@
     <string>zh_CN</string>
     <!-- Must match the bundle's file name, or Finder ignores the localized "记特" in *.lproj/InfoPlist.strings. -->
     <key>CFBundleDisplayName</key>
-    <string>GitNotebook</string>
+    <string>Jitnote</string>
     <key>CFBundleExecutable</key>
-    <string>GitNotebook</string>
+    <string>Jitnote</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.leonmason.gitnotebook</string>
+    <string>io.github.leonmason.jitnote</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

@@ -41,11 +41,11 @@ final class EditorBridge: ObservableObject {
     }
 }
 
-private let scheme = "gitnotebook"
+private let scheme = "jitnote"
 private let host = "app"
 
 /// The shared web editor (see /editor in the repository) showing one note in a WKWebView.
-/// Same host interface as Android: GitNotebookHost.onReady / onChange / resolveFile / openImage.
+/// Same host interface as Android: JitnoteHost.onReady / onChange / resolveFile / openImage.
 @MainActor
 final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, WKURLSchemeHandler {
     /// Created after `init` registers this object as the scheme handler: WebKit copies the configuration.
@@ -71,12 +71,12 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(self, forURLScheme: scheme)
         let shim = """
-        window.GitNotebookHost = {
+        window.JitnoteHost = {
           onReady: () => window.webkit.messageHandlers.host.postMessage({ type: 'ready' }),
           onChange: (markdown) => window.webkit.messageHandlers.host.postMessage({ type: 'change', markdown }),
           openImage: (path) => window.webkit.messageHandlers.host.postMessage({ type: 'openImage', path }),
           // The editor needs the answer right away; prompt() is WebKit's only synchronous way to ask the app.
-          resolveFile: (path) => window.prompt('gitnotebook:resolveFile', path) || '',
+          resolveFile: (path) => window.prompt('jitnote:resolveFile', path) || '',
         };
         """
         configuration.userContentController.addUserScript(WKUserScript(source: shim, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -90,7 +90,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
 
     /// Saves the latest content; called before syncing, when switching notes and when the app goes away.
     func flush() async {
-        let markdown = try? await webView.evaluateJavaScript("window.GitNotebookEditor ? window.GitNotebookEditor.getMarkdown() : null") as? String
+        let markdown = try? await webView.evaluateJavaScript("window.JitnoteEditor ? window.JitnoteEditor.getMarkdown() : null") as? String
         if saver.save(markdown) { onSaved() }
     }
 
@@ -111,7 +111,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
             ]
             let optionsJson = String(data: try! JSONSerialization.data(withJSONObject: options), encoding: .utf8)!
             let contentJson = String(data: try! JSONSerialization.data(withJSONObject: [content]), encoding: .utf8)!.dropFirst().dropLast()
-            webView.evaluateJavaScript("window.GitNotebookEditor.load(\(contentJson), \(optionsJson))")
+            webView.evaluateJavaScript("window.JitnoteEditor.load(\(contentJson), \(optionsJson))")
         case "change":
             saver.markEdited()
             if saver.save(body["markdown"] as? String) { onSaved() }
@@ -125,7 +125,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
-        guard prompt == "gitnotebook:resolveFile", let reference = defaultText else { return completionHandler(nil) }
+        guard prompt == "jitnote:resolveFile", let reference = defaultText else { return completionHandler(nil) }
         completionHandler(assets.resolve(noteFolder: folder, reference: reference) ?? "")
     }
 
