@@ -67,6 +67,8 @@ struct AppState: Codable, Equatable {
     /// The notebook the main window shows; the first one when unset or removed.
     var currentNotebookId: String?
     var noteSort: NoteSort = .modifiedDesc
+    /// List files and folders starting with "." (never .git), see `NoteIndex.isHidden`.
+    var showHiddenFiles = false
     /// Last successful check for a new app version, see `AppUpdates`.
     var lastUpdateCheckAt: Int64?
 
@@ -82,6 +84,7 @@ struct AppState: Codable, Equatable {
         notebooks = try c.decodeIfPresent([Notebook].self, forKey: .notebooks) ?? []
         currentNotebookId = try c.decodeIfPresent(String.self, forKey: .currentNotebookId)
         noteSort = (try? c.decodeIfPresent(NoteSort.self, forKey: .noteSort)) ?? .modifiedDesc
+        showHiddenFiles = try c.decodeIfPresent(Bool.self, forKey: .showHiddenFiles) ?? false
         lastUpdateCheckAt = try c.decodeIfPresent(Int64.self, forKey: .lastUpdateCheckAt)
     }
 }

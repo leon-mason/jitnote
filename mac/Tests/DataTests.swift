@@ -81,6 +81,21 @@ enum NoteIndexTests {
             try expectEqual(tree[2].children![0].children![0].children!.map(\.name), ["r.md"])
         },
 
+        TestCase("hiddenFilesOnlyWhenAskedAndNeverGit") { root in
+            try write(root, "a.md")
+            try write(root, ".gitignore", "x")
+            try write(root, ".obsidian/templates/模板.md")
+            try write(root, ".git/notes.md")
+
+            try expectEqual(NoteIndex.notes(in: root, sort: .titleAsc).map(\.title), ["a"])
+            try expectEqual(NoteIndex.tree(in: root).map(\.name), ["a.md"])
+
+            try expectEqual(Set(NoteIndex.notes(in: root, sort: .titleAsc, showHidden: true).map(\.title)), ["a", "模板"])
+            let tree = NoteIndex.tree(in: root, showHidden: true)
+            try expectEqual(tree.map(\.name), [".obsidian", ".gitignore", "a.md"])
+            try expectEqual(tree[0].noteCount, 1)
+        },
+
         TestCase("previewSkipsFrontMatterTitleAndMarkup") { _ in
             try expectEqual(
                 NoteIndex.preview("---\ntags: [会议]\n---\n# 周会记录\n\n> 下周上线**检查更新**功能\n\n- 需要先发\n- [ ] 一个版本\n"),

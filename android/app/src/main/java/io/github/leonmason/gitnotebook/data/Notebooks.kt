@@ -181,6 +181,8 @@ class Notebooks(
 
     fun setSort(sort: NoteSort) = store.update { it.copy(noteSort = sort) }
 
+    fun setShowHiddenFiles(show: Boolean) = store.update { it.copy(showHiddenFiles = show) }
+
     /** Removes the notebook from this device only. The cloud repository is left alone. */
     suspend fun deleteLocal(notebook: Notebook) = withContext(Dispatchers.IO) {
         withLock(notebook) { dir(notebook).deleteRecursively() }

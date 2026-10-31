@@ -3,13 +3,35 @@ import SwiftUI
 
 /// The Settings window (⌘,): notebooks, cloud accounts, and updates.
 struct SettingsView: View {
+    @State private var tab = "general"
+
     var body: some View {
-        TabView {
-            ManageNotebooksView().tabItem { Label("笔记本", systemImage: "books.vertical") }
-            AccountsView().tabItem { Label("云端账号", systemImage: "person.crop.circle") }
-            AboutView().tabItem { Label("关于", systemImage: "info.circle") }
+        TabView(selection: $tab) {
+            GeneralSettingsView().tabItem { Label("通用", systemImage: "gearshape") }.tag("general")
+            ManageNotebooksView().tabItem { Label("笔记本", systemImage: "books.vertical") }.tag("notebooks")
+            AccountsView().tabItem { Label("云端账号", systemImage: "person.crop.circle") }.tag("accounts")
+            AboutView().tabItem { Label("关于", systemImage: "info.circle") }.tag("about")
         }
         .frame(width: 560, height: 420)
+        #if GN_DEBUG_HOOKS
+        .onReceive(NotificationCenter.default.publisher(for: .debugCommand)) { note in
+            if let command = note.object as? String, command.hasPrefix("tab ") { tab = String(command.dropFirst(4)) }
+        }
+        #endif
+    }
+}
+
+struct GeneralSettingsView: View {
+    @EnvironmentObject private var notebooks: Notebooks
+
+    var body: some View {
+        Form {
+            Toggle(isOn: Binding(get: { notebooks.state.showHiddenFiles }, set: notebooks.setShowHiddenFiles)) {
+                Text("显示隐藏文件")
+                Text("显示以 . 开头的文件和文件夹，比如 .obsidian、.gitignore。Git 自己的 .git 文件夹始终不显示。")
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

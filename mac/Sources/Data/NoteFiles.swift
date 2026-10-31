@@ -35,10 +35,16 @@ enum NoteIndex {
         noteExtensions.contains(url.pathExtension.lowercased()) && !url.hasDirectoryPath && isFile(url)
     }
 
+    /// Hidden files start with "." (.obsidian, .gitignore) and are only listed when [showHidden] is on.
+    /// Git's own .git folder is never listed: changing it by hand can break the notebook.
+    static func isHidden(_ name: String, showHidden: Bool) -> Bool {
+        name == ".git" || (!showHidden && name.hasPrefix("."))
+    }
+
     /// All notes under [folder] (and its subfolders), sorted by [sort].
-    static func notes(in root: URL, sort: NoteSort, folder: String = "") -> [Note] {
+    static func notes(in root: URL, sort: NoteSort, folder: String = "", showHidden: Bool = false) -> [Note] {
         let start = folder.isEmpty ? root : root.appendingPathComponent(folder)
-        let notes = visibleFiles(under: start).filter(isNote).map { url -> Note in
+        let notes = visibleFiles(under: start, showHidden: showHidden).filter(isNote).map { url -> Note in
             let path = relativePath(of: url, in: root)
             let folder = path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : ""
             return Note(
@@ -64,15 +70,15 @@ enum NoteIndex {
     }
 
     /// Every visible file and folder under [root]: folders first, then files, each by name.
-    static func tree(in root: URL) -> [Entry] { entries(in: root, root: root) }
+    static func tree(in root: URL, showHidden: Bool = false) -> [Entry] { entries(in: root, root: root, showHidden: showHidden) }
 
-    private static func entries(in dir: URL, root: URL) -> [Entry] {
+    private static func entries(in dir: URL, root: URL, showHidden: Bool) -> [Entry] {
         let items = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
-            .filter { !$0.lastPathComponent.hasPrefix(".") }
+            .filter { !isHidden($0.lastPathComponent, showHidden: showHidden) }
             .map { (url: $0, isFolder: isDirectory($0)) }
             .sorted { a, b in a.isFolder != b.isFolder ? a.isFolder : compareTitles(a.url.lastPathComponent, b.url.lastPathComponent) }
         return items.map { item in
-            let children = item.isFolder ? entries(in: item.url, root: root) : []
+            let children = item.isFolder ? entries(in: item.url, root: root, showHidden: showHidden) : []
             return Entry(
                 path: relativePath(of: item.url, in: root),
                 name: item.url.lastPathComponent.precomposedStringWithCanonicalMapping,
@@ -105,13 +111,20 @@ enum NoteIndex {
         a.compare(b, options: [.caseInsensitive, .numeric], range: nil, locale: Locale(identifier: "zh_CN")) == .orderedAscending
     }
 
-    static func visibleFiles(under dir: URL) -> [URL] {
+    static func visibleFiles(under dir: URL, showHidden: Bool = false) -> [URL] {
         guard let walker = FileManager.default.enumerator(
             at: dir,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey]
         ) else { return [] }
-        return walker.compactMap { $0 as? URL }.filter(isFile)
+        var files: [URL] = []
+        while let url = walker.nextObject() as? URL {
+            if isHidden(url.lastPathComponent, showHidden: showHidden) {
+                walker.skipDescendants()
+            } else if isFile(url) {
+                files.append(url)
+            }
+        }
+        return files
     }
 
     static func relativePath(of url: URL, in root: URL) -> String {

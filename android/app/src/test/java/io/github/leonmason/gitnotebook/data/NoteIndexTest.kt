@@ -59,26 +59,46 @@ class NoteIndexTest {
     }
 
     @Test
-    fun buildsTheFolderTreeWithNoteCounts() {
-        write("a.md")
+    fun buildsTheFileTreeLikeObsidian() {
+        write("b.md")
+        write("A.txt")
         write("会议/2026/x.md")
         write("会议/2026/y.md")
         write("会议/2025/z.md")
+        write("会议/议程.md")
         write("技术/安卓/发布/r.md")
         write("附件/cat.png")
         File(tmp.root, "空文件夹").mkdirs()
         write(".obsidian/w.md")
 
-        val tree = NoteIndex.folders(tmp.root)
-        // Chinese names sort by pinyin: fu, hui, ji, kong.
-        assertEquals(listOf("附件", "会议", "技术", "空文件夹"), tree.map { it.name })
+        val tree = NoteIndex.tree(tmp.root)
+        // Folders first, then files with their extensions; Chinese names sort by pinyin: fu, hui, ji, kong.
+        assertEquals(listOf("附件", "会议", "技术", "空文件夹", "A.txt", "b.md"), tree.map { it.name })
         val meetings = tree[1]
-        assertEquals(3, meetings.noteCount)
-        assertEquals(listOf("2025", "2026"), meetings.children.map { it.name })
+        assertEquals(4, meetings.noteCount)
+        assertEquals(listOf("2025", "2026", "议程.md"), meetings.children.map { it.name })
         assertEquals("会议/2026", meetings.children[1].path)
         assertEquals(2, meetings.children[1].noteCount)
-        assertEquals(1, tree[2].children[0].children[0].noteCount)
+        assertEquals("会议/议程.md", meetings.children[2].path)
+        assertEquals(false, meetings.children[2].isFolder)
+        assertEquals(listOf("cat.png"), tree[0].children.map { it.name })
         assertEquals(0, tree[0].noteCount)
+        assertEquals(listOf("r.md"), tree[2].children[0].children[0].children.map { it.name })
+    }
+
+    @Test
+    fun hiddenFilesOnlyWhenAskedAndNeverGit() {
+        write("a.md")
+        write(".obsidian/templates/模板.md")
+        write(".git/notes.md")
+
+        assertEquals(listOf("a"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC).map { it.title })
+        assertEquals(listOf("a.md"), NoteIndex.tree(tmp.root).map { it.name })
+
+        assertEquals(listOf("a", "模板"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC, showHidden = true).map { it.title })
+        val tree = NoteIndex.tree(tmp.root, showHidden = true)
+        assertEquals(listOf(".obsidian", "a.md"), tree.map { it.name })
+        assertEquals(1, tree[0].noteCount)
     }
 
     @Test

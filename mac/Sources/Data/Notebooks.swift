@@ -42,6 +42,8 @@ final class Notebooks: ObservableObject {
 
     func setSort(_ sort: NoteSort) { update { $0.noteSort = sort } }
 
+    func setShowHiddenFiles(_ show: Bool) { update { $0.showHiddenFiles = show } }
+
     func touch() { revision += 1 }
 
     // MARK: - Accounts

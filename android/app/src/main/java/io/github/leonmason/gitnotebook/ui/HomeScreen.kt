@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.leonmason.gitnotebook.data.AppUpdates
+import io.github.leonmason.gitnotebook.data.NoteAssets
 import io.github.leonmason.gitnotebook.data.NoteFiles
 import io.github.leonmason.gitnotebook.data.NoteIndex
 import io.github.leonmason.gitnotebook.data.NoteSort
@@ -75,7 +76,7 @@ fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     val state by notebooks.state.collectAsStateWithLifecycle()
     val notebook = notebooks.current(state)
     if (notebook != null) {
-        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.noteSort)
+        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.noteSort, state.showHiddenFiles)
         return
     }
     Scaffold(
@@ -113,6 +114,7 @@ private fun NotesHome(
     notebook: Notebook,
     all: List<Notebook>,
     sort: NoteSort,
+    showHidden: Boolean,
 ) {
     val syncStates by notebooks.syncStates.collectAsStateWithLifecycle()
     val syncState = syncStates[notebook.id]
@@ -124,7 +126,7 @@ private fun NotesHome(
 
     var refresh by remember { mutableIntStateOf(0) }
     var notes by remember { mutableStateOf<List<NoteIndex.Note>?>(null) }
-    var tree by remember { mutableStateOf<List<NoteIndex.Folder>>(emptyList()) }
+    var tree by remember { mutableStateOf<List<NoteIndex.Entry>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     var conflictCount by remember { mutableIntStateOf(0) }
 
@@ -133,7 +135,7 @@ private fun NotesHome(
     var renaming by remember { mutableStateOf<File?>(null) }
     var deleting by remember { mutableStateOf<File?>(null) }
 
-    LaunchedEffect(notebook.id, folder, sort, refresh, syncState) {
+    LaunchedEffect(notebook.id, folder, sort, showHidden, refresh, syncState) {
         if (syncState == SyncState.Running) return@LaunchedEffect
         withContext(Dispatchers.IO) {
             // A folder that was renamed or deleted elsewhere (e.g. by a sync) falls back to all notes.
@@ -141,10 +143,10 @@ private fun NotesHome(
                 nav.homeFolder.remove(notebook.id)
                 return@withContext
             }
-            val shown = NoteIndex.notes(root, sort, folder)
+            val shown = NoteIndex.notes(root, sort, folder, showHidden)
             notes = shown
-            tree = NoteIndex.folders(root)
-            total = if (folder.isEmpty()) shown.size else NoteIndex.notes(root, sort).size
+            tree = NoteIndex.tree(root, showHidden)
+            total = if (folder.isEmpty()) shown.size else NoteIndex.notes(root, sort, showHidden = showHidden).size
         }
         conflictCount = notebooks.conflicts(notebook).size
     }
@@ -155,12 +157,23 @@ private fun NotesHome(
         scope.launch { drawer.close() }
     }
 
+    // A file picked in the file list: notes and text open in the editor, pictures in the viewer.
+    fun openFile(path: String) {
+        scope.launch { drawer.close() }
+        val file = File(root, path)
+        when {
+            NoteAssets.isImage(file) -> nav.push(Screen.Image(notebook.id, path))
+            NoteFiles.isEditable(file) -> nav.push(Screen.Editor(notebook.id, path))
+            else -> scope.launch { snackbar.showSnackbar("这种文件暂时不能在手机上打开") }
+        }
+    }
+
     BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
 
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            FolderDrawer(
+            FileListDrawer(
                 notebookName = notebook.name,
                 total = total,
                 tree = tree,
@@ -170,8 +183,13 @@ private fun NotesHome(
                     val open = nav.expandedFolders[notebook.id].orEmpty()
                     nav.expandedFolders[notebook.id] = if (path in open) open - path else open + path
                 },
-                onSelect = ::showFolder,
+                onSelectFolder = ::showFolder,
+                onOpenFile = ::openFile,
                 onNewFolder = { creatingFolder = true },
+                onHistory = { path ->
+                    scope.launch { drawer.close() }
+                    nav.push(Screen.History(notebook.id, path))
+                },
                 onRename = { renaming = File(root, it) },
                 onDelete = { deleting = File(root, it) },
             )
@@ -380,6 +398,10 @@ private fun AppMenu(updates: AppUpdates, nav: Navigator) {
             DropdownMenuItem(text = { Text("云端账号") }, onClick = {
                 open = false
                 nav.push(Screen.Accounts)
+            })
+            DropdownMenuItem(text = { Text("设置") }, onClick = {
+                open = false
+                nav.push(Screen.Settings)
             })
             DropdownMenuItem(text = { Text("检查更新") }, onClick = {
                 open = false

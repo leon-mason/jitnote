@@ -46,6 +46,8 @@ data class AppState(
     /** The notebook the home screen shows; the first one when unset or removed. */
     val currentNotebookId: String? = null,
     val noteSort: NoteSort = NoteSort.MODIFIED_DESC,
+    /** List files and folders starting with "." (never .git), see [NoteIndex.isHidden]. */
+    val showHiddenFiles: Boolean = false,
     /** Last successful check for a new app version, see [AppUpdates]. */
     val lastUpdateCheckAt: Long? = null,
 )

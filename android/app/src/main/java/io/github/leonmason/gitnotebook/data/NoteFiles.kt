@@ -28,9 +28,12 @@ object NoteFiles {
                     .thenBy { it.name.lowercase() },
             )
 
-    fun isEditable(file: File): Boolean {
-        val ext = file.extension.lowercase()
-        return (ext.isEmpty() || ext in textExtensions) && file.length() < 2_000_000
+    fun isEditable(file: File): Boolean = isTextName(file.name) && file.length() < 2_000_000
+
+    /** Whether a file with this name is text the editor can open, judging by its extension only. */
+    fun isTextName(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext.isEmpty() || ext in textExtensions
     }
 
     /** Returns null if [raw] is not usable as a file name. */

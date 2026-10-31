@@ -18,6 +18,7 @@ sealed interface Screen {
 
     /** Add, rename, remove and sync notebooks. */
     data object Notebooks : Screen
+    data object Settings : Screen
     data object Accounts : Screen
     data object AddAccount : Screen
     data object NewNotebook : Screen
@@ -70,6 +71,7 @@ private fun ScreenContent(notebooks: Notebooks, updates: AppUpdates, nav: Naviga
     when (screen) {
         Screen.Home -> HomeScreen(notebooks, updates, nav)
         Screen.Notebooks -> NotebooksScreen(notebooks, nav)
+        Screen.Settings -> SettingsScreen(notebooks, nav)
         Screen.Accounts -> AccountsScreen(notebooks, nav)
         Screen.AddAccount -> AddAccountScreen(notebooks, nav)
         Screen.NewNotebook -> NewNotebookScreen(notebooks, nav)

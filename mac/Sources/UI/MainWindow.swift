@@ -60,6 +60,9 @@ struct NotebookView: View {
     @Binding var addingNotebook: Bool
 
     @EnvironmentObject private var notebooks: Notebooks
+    #if GN_DEBUG_HOOKS
+    @Environment(\.openSettings) private var openSettings
+    #endif
     @StateObject private var bridge = EditorBridge()
     @State private var folder = ""
     @State private var selection: String?
@@ -91,7 +94,7 @@ struct NotebookView: View {
     private var here: URL { folder.isEmpty ? root : root.appendingPathComponent(folder) }
 
     private struct LoadKey: Equatable {
-        let folder: String, sort: NoteSort, refresh: Int, revision: Int, syncing: Bool
+        let folder: String, sort: NoteSort, showHidden: Bool, refresh: Int, revision: Int, syncing: Bool
     }
 
     var body: some View {
@@ -128,7 +131,7 @@ struct NotebookView: View {
                 }
             }
         }
-        .task(id: LoadKey(folder: folder, sort: notebooks.state.noteSort, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
+        .task(id: LoadKey(folder: folder, sort: notebooks.state.noteSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
         }
         .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote }
@@ -141,6 +144,7 @@ struct NotebookView: View {
             if command.hasPrefix("folder ") { folder = String(command.dropFirst(7)) }
             if command == "sync" { sync() }
             if command == "newnote" { prompt = .newNote }
+            if command == "settings" { openSettings() }
         }
         #endif
         .onReceive(NotificationCenter.default.publisher(for: .saveNow)) { _ in
@@ -224,16 +228,16 @@ struct NotebookView: View {
 
     private func load() async {
         guard !syncing else { return }
-        let root = root, folder = folder, sort = notebooks.state.noteSort
+        let root = root, folder = folder, sort = notebooks.state.noteSort, showHidden = notebooks.state.showHiddenFiles
         // A folder that was renamed or deleted elsewhere (e.g. by a sync) falls back to all notes.
         if !folder.isEmpty && !isDirectory(root.appendingPathComponent(folder)) {
             self.folder = ""
             return
         }
         let (shown, entries, all) = await Task.detached {
-            let shown = NoteIndex.notes(in: root, sort: sort, folder: folder)
-            let all = folder.isEmpty ? shown.count : NoteIndex.notes(in: root, sort: sort).count
-            return (shown, NoteIndex.tree(in: root), all)
+            let shown = NoteIndex.notes(in: root, sort: sort, folder: folder, showHidden: showHidden)
+            let all = folder.isEmpty ? shown.count : NoteIndex.notes(in: root, sort: sort, showHidden: showHidden).count
+            return (shown, NoteIndex.tree(in: root, showHidden: showHidden), all)
         }.value
         notes = shown
         tree = entries
@@ -404,7 +408,7 @@ private struct Sidebar: View {
                 Label { HStack { Text("全部笔记"); Spacer(); Text("\(total)").foregroundStyle(.secondary) } }
                     icon: { Image(systemName: "note.text") }
                     .tag("")
-                Section("文件") {
+                Section("文件列表") {
                     OutlineGroup(tree, children: \.children) { entry in
                         row(entry)
                             .tag(entry.path)

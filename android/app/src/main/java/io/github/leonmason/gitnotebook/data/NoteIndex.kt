@@ -29,7 +29,16 @@ object NoteIndex {
         val preview: String,
     )
 
-    data class Folder(val path: String, val name: String, val children: List<Folder>, val noteCount: Int)
+    /** A file or folder in the file list, named in full like Obsidian's file explorer. */
+    data class Entry(
+        val path: String,
+        val name: String,
+        val isFolder: Boolean,
+        /** Contents of a folder; empty for files. */
+        val children: List<Entry>,
+        /** Notes in a folder, including its subfolders; 0 for files. */
+        val noteCount: Int,
+    )
 
     private val noteExtensions = setOf("md", "markdown", "txt")
 
@@ -38,10 +47,16 @@ object NoteIndex {
 
     fun isNote(file: File) = file.isFile && file.extension.lowercase() in noteExtensions
 
+    /**
+     * Hidden files start with "." (.obsidian, .gitignore) and are only listed when [showHidden] is on.
+     * Git's own .git folder is never listed: changing it by hand can break the notebook.
+     */
+    fun isHidden(name: String, showHidden: Boolean) = name == ".git" || (!showHidden && name.startsWith("."))
+
     /** All notes under [folder] (and its subfolders), sorted by [sort]. */
-    fun notes(root: File, sort: NoteSort, folder: String = ""): List<Note> {
+    fun notes(root: File, sort: NoteSort, folder: String = "", showHidden: Boolean = false): List<Note> {
         val start = if (folder.isEmpty()) root else File(root, folder)
-        val notes = visible(start).filter(::isNote).map { file ->
+        val notes = visible(start, showHidden).filter(::isNote).map { file ->
             val path = file.relativeTo(root).invariantSeparatorsPath
             Note(
                 file = file,
@@ -66,24 +81,26 @@ object NoteIndex {
         )
     }
 
-    /** The folders under [root] as a tree, each with how many notes it holds including subfolders. */
-    fun folders(root: File): List<Folder> = children(root, root)
+    /** Every visible file and folder under [root]: folders first, then files, each by name. */
+    fun tree(root: File, showHidden: Boolean = false): List<Entry> = entries(root, root, showHidden)
 
-    private fun children(root: File, dir: File): List<Folder> =
+    private fun entries(root: File, dir: File, showHidden: Boolean): List<Entry> =
         (dir.listFiles() ?: emptyArray())
-            .filter { it.isDirectory && !it.name.startsWith(".") }
-            .sortedWith(compareBy(collator) { it.name })
+            .filter { !isHidden(it.name, showHidden) }
+            .sortedWith(compareBy<File> { !it.isDirectory }.thenComparing(compareBy(collator) { it.name }))
             .map { child ->
-                Folder(
+                val children = if (child.isDirectory) entries(root, child, showHidden) else emptyList()
+                Entry(
                     path = child.relativeTo(root).invariantSeparatorsPath,
                     name = child.name,
-                    children = children(root, child),
-                    noteCount = visible(child).count(::isNote),
+                    isFolder = child.isDirectory,
+                    children = children,
+                    noteCount = if (child.isDirectory) children.sumOf { if (it.isFolder) it.noteCount else if (isNote(File(child, it.name))) 1 else 0 } else 0,
                 )
             }
 
-    private fun visible(dir: File): Sequence<File> =
-        dir.walkTopDown().onEnter { it == dir || !it.name.startsWith(".") }.filter { !it.name.startsWith(".") }
+    private fun visible(dir: File, showHidden: Boolean): Sequence<File> =
+        dir.walkTopDown().onEnter { it == dir || !isHidden(it.name, showHidden) }.filter { !isHidden(it.name, showHidden) }
 
     private fun readHead(file: File): String = runCatching {
         file.bufferedReader().use { reader ->
