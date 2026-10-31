@@ -153,17 +153,33 @@ final class AppUpdates: ObservableObject {
         return app
     }
 
-    /// Reads a GitHub release, preferring its Mac DMG over the ZIP; nil when it has no Mac build or is
-    /// a draft or pre-release.
-    nonisolated static func parseRelease(_ release: [String: Any]) -> Release? {
+    /// The chip in Mac package names: GitNotebook-mac-apple-silicon-0.4.0.dmg (an Intel build would say "intel").
+    nonisolated static var chip: String {
+        #if arch(arm64)
+        "apple-silicon"
+        #else
+        "intel"
+        #endif
+    }
+
+    /// Reads a GitHub release: the Mac package for [chip], DMG before ZIP. Packages named for another chip
+    /// are skipped; ones with no chip in the name (0.3.0) are taken as a last resort. Nil when there is no
+    /// Mac build or the release is a draft or pre-release.
+    nonisolated static func parseRelease(_ release: [String: Any], chip: String = chip) -> Release? {
         if release["draft"] as? Bool == true || release["prerelease"] as? Bool == true { return nil }
         guard var version = release["tag_name"] as? String else { return nil }
         if version.hasPrefix("v") { version.removeFirst() }
         let assets = release["assets"] as? [[String: Any]] ?? []
-        func macAsset(_ suffix: String) -> [String: Any]? {
-            assets.first { ($0["name"] as? String).map { $0.contains("-mac") && $0.hasSuffix(suffix) } ?? false }
+        let chips = ["apple-silicon", "intel"]
+        func macAsset(_ suffix: String, chip wanted: String?) -> [String: Any]? {
+            assets.first { asset in
+                guard let name = asset["name"] as? String, name.contains("-mac"), name.hasSuffix(suffix) else { return false }
+                let named = chips.first { name.contains("-\($0)") }
+                return named == wanted
+            }
         }
-        guard let asset = macAsset(".dmg") ?? macAsset(".zip"),
+        guard let asset = macAsset(".dmg", chip: chip) ?? macAsset(".zip", chip: chip)
+                ?? macAsset(".dmg", chip: nil) ?? macAsset(".zip", chip: nil),
               let url = (asset["browser_download_url"] as? String).flatMap(URL.init(string:))
         else { return nil }
         let notes = (release["body"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")

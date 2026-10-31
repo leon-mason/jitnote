@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -293,5 +294,26 @@ struct ImageViewer: View {
             }
         }
         .frame(minWidth: 640, minHeight: 480)
+    }
+}
+
+/// Any other file (Word, Excel, PowerPoint, PDF, Keynote, video…) shown read-only by Quick Look,
+/// the same preview Finder gives on the space bar. Types it doesn't know show their icon and size.
+struct FilePreview: NSViewRepresentable {
+    let file: URL
+
+    func makeNSView(context: Context) -> QLPreviewView {
+        let view = QLPreviewView(frame: .zero, style: .normal)!
+        view.autostarts = true
+        view.previewItem = file as NSURL
+        return view
+    }
+
+    func updateNSView(_ view: QLPreviewView, context: Context) {
+        if (view.previewItem as? URL) != file { view.previewItem = file as NSURL }
+    }
+
+    static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
+        view.close()
     }
 }

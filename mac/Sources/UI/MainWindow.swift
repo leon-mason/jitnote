@@ -192,6 +192,18 @@ struct NotebookView: View {
     private var detail: some View {
         if syncing {
             Waiting(message: "正在同步，请稍候…")
+        } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path),
+                  !NoteIndex.isEditable(path) {
+            FilePreview(file: root.appendingPathComponent(path))
+                .id(path)
+                .toolbar {
+                    ToolbarItem {
+                        Button { NSWorkspace.shared.open(root.appendingPathComponent(path)) } label: {
+                            Label("用其他应用打开", systemImage: "arrow.up.forward.app")
+                        }
+                        .help("用其他应用打开")
+                    }
+                }
         } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
             NoteDetail(root: root, path: path, bridge: bridge,
                        onSaved: {},
@@ -245,15 +257,13 @@ struct NotebookView: View {
         conflictCount = await notebooks.conflicts(notebook).count
     }
 
-    /// A file picked in the sidebar: notes and text open on the right, pictures in the viewer,
-    /// anything else in the Mac app that handles it.
+    /// A file picked in the sidebar: pictures open in the viewer; notes and text on the right to edit,
+    /// anything else (Office, PDF…) on the right in a Quick Look preview.
     private func open(_ path: String) {
         if NoteAssets.isImage(path) {
             image = root.appendingPathComponent(path)
-        } else if NoteIndex.isEditable(path) {
-            selection = path
         } else {
-            NSWorkspace.shared.open(root.appendingPathComponent(path))
+            selection = path
         }
     }
 

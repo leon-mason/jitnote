@@ -68,4 +68,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          gh release upload "$GITHUB_REF_NAME" "mac/build/GitNotebook-mac-$version.dmg" "mac/build/GitNotebook-mac-$version.zip"
+          gh release upload "$GITHUB_REF_NAME" "mac/build/GitNotebook-mac-apple-silicon-$version.dmg" "mac/build/GitNotebook-mac-apple-silicon-$version.zip"

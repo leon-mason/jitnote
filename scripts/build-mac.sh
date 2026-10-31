@@ -2,7 +2,7 @@
 #
 # 不用 Xcode 构建 Mac 版：直接调用 swiftc，Git 用 Homebrew 的 libgit2（brew install libgit2）。
 #
-#   scripts/build-mac.sh          → mac/build/GitNotebook.app，以及发布用的 GitNotebook-mac-<版本>.dmg 和 .zip
+#   scripts/build-mac.sh          → mac/build/GitNotebook.app，以及发布用的 GitNotebook-mac-apple-silicon-<版本>.dmg 和 .zip
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
 #   scripts/build-mac.sh --debug  → mac/build/GitNotebookDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
@@ -106,8 +106,11 @@ if [ "${1:-}" = "--debug" ]; then
     exit 0
 fi
 
+# Only Apple silicon for now; the name says so, and the app's update check looks for its own chip in it.
+PACKAGE="$BUILD/GitNotebook-mac-apple-silicon-$VERSION"
+
 # DMG for people: opens a window with the app next to Applications, to drag it across.
-DMG="$BUILD/GitNotebook-mac-$VERSION.dmg"
+DMG="$PACKAGE.dmg"
 STAGE="$BUILD/dmg"
 rm -rf "$STAGE" "$DMG"
 mkdir -p "$STAGE"
@@ -117,7 +120,7 @@ hdiutil create -quiet -volname "Git 笔记本" -srcfolder "$STAGE" -fs HFS+ -for
 rm -rf "$STAGE"
 
 # ZIP for the update check of 0.3.0, which only knows ZIPs; can go once nobody runs 0.3.0.
-ZIP="$BUILD/GitNotebook-mac-$VERSION.zip"
+ZIP="$PACKAGE.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "✓ $APP"
