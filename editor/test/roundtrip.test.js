@@ -4,9 +4,17 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
 let editor
+const files = { 'assets/cat.png': 'notes/assets/cat.png', '封面.png': '附件/封面.png', '附件/封面.png': '附件/封面.png' }
+const opened = []
 
 beforeAll(async () => {
   document.body.innerHTML = '<div id="editor"></div><nav id="toolbar" hidden></nav>'
+  window.GitNotebookHost = {
+    onReady() {},
+    onChange() {},
+    resolveFile: (path) => files[path] ?? '',
+    openImage: (path) => opened.push(path),
+  }
   // jsdom lacks a few layout APIs ProseMirror probes for.
   document.elementFromPoint = () => null
   Range.prototype.getClientRects = () => []
@@ -34,7 +42,30 @@ const unchanged = {
   dividers: '---\n\n文字\n',
   'aligned table': '| 书名     | 进度 |\n| -------- | ---- |\n| 人类简史 | 50%  |\n',
   'links and code': '[百度](https://baidu.com)\n\n```js\nconst a = 1\n```\n',
+  'image embeds': '![[封面.png]]\n\n带宽度：![[封面.png|120]] 和 ![[a.jpg|300x200]] 文字\n',
+  'note embeds': '![[另一篇笔记]]\n',
 }
+
+describe('images', () => {
+  const options = { baseUrl: 'https://app.test/notebook/notes/', notebookUrl: 'https://app.test/notebook/' }
+
+  it('loads images the host can find from the notebook, tagged for tapping', async () => {
+    await editor.load('![猫](assets/cat.png)\n\n![[封面.png|120]]\n', options)
+    const [cat, cover] = document.querySelectorAll('.milkdown img[data-gn-path]')
+    expect(cat.getAttribute('src')).toBe('https://app.test/notebook/notes/assets/cat.png')
+    expect(cover.getAttribute('src')).toBe(`https://app.test/notebook/${encodeURIComponent('附件')}/${encodeURIComponent('封面.png')}`)
+    expect(cover.style.width).toBe('120px')
+    cover.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(opened).toContain('附件/封面.png')
+  })
+
+  it('falls back to the note folder for files the host does not know', async () => {
+    await editor.load('![x](missing.png)\n', options)
+    const image = [...document.querySelectorAll('.milkdown img')].find((img) => img.alt === 'x')
+    expect(image.getAttribute('src')).toBe('https://app.test/notebook/notes/missing.png')
+    expect(image.hasAttribute('data-gn-path')).toBe(false)
+  })
+})
 
 describe('round trip', () => {
   for (const [name, markdown] of Object.entries(unchanged)) {

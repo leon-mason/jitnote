@@ -70,7 +70,21 @@
 - 宿主接口（各平台一致）：
   - 宿主 → 编辑器：`window.GitNotebookEditor.load(markdown, { readonly, baseUrl })`、`window.GitNotebookEditor.getMarkdown()`
   - 编辑器 → 宿主：`window.GitNotebookHost.onReady()`、`window.GitNotebookHost.onChange(markdown)`（防抖，仅在真实编辑后）
-- 相对路径图片通过 `baseUrl` 解析到笔记所在文件夹（Android 用 `WebViewAssetLoader` 把笔记本目录映射到 `https://appassets.androidplatform.net/notebook/`）。
+- 只有用户真正改过才回写文件；只是打开、看完、返回，不会产生任何修改或提交。
+
+## 图片
+
+笔记来自不同的编辑器，引用图片的方式各不相同，App 都要能显示，而且**只显示、不改写**引用：
+
+| 写法 | 来源 | 查找方式 |
+| --- | --- | --- |
+| `![猫](assets/cat.png)` | Typora、VS Code | 相对笔记所在文件夹 |
+| `![猫](附件/cat.png)`、`/附件/cat.png` | Obsidian | 相对笔记本根目录 |
+| `![[cat.png]]`、`![[cat.png\|300]]` | Obsidian | 按文件名在整个笔记本里找，路径最短的优先；`\|300` 设显示宽度 |
+
+- 查找由宿主完成（`GitNotebookHost.resolveFile`，Android 见 `NoteAssets.kt`），永远不会解析到笔记本外面或 `.git` 里。找到的图片经 `https://appassets.androidplatform.net/notebook/` 从笔记本目录读取。
+- `![[图片]]` 在编辑器里是一个独立的图片节点，保存时原样写回 `![[…]]`；`![[另一篇笔记]]` 这类非图片嵌入保持文字。
+- 点笔记里的图片、或文件列表里的图片文件，打开全屏查看：双指缩放、双击放大/还原、拖动。超大图片按最长边 4096 像素解码，避免内存不足。文件列表里图片显示缩略图。
 
 ## Android 技术选型
 
@@ -86,7 +100,8 @@ JGit 被隔离在 App 自己的配置里（不读系统 git、不读 `~/.gitconf
 
 ## 暂未做（后续）
 
-- 插入图片（拍照/相册，压缩为 WebP 存到 `assets/年月/`）
+- 插入图片（拍照/相册，压缩为 WebP 存到 `assets/年月/`）；目前只能查看
+- 查看历史版本时，图片显示的是当前版本的文件
 - 全文搜索
 - GitHub 设备码登录（免手动生成令牌）
 - 自动同步（打开 App、切回前台时）

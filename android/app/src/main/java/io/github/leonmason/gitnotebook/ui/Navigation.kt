@@ -2,6 +2,7 @@ package io.github.leonmason.gitnotebook.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -18,6 +19,7 @@ sealed interface Screen {
     data class History(val notebookId: String, val path: String) : Screen
     data class VersionPreview(val notebookId: String, val path: String, val version: Version) : Screen
     data class Conflicts(val notebookId: String) : Screen
+    data class Image(val notebookId: String, val path: String) : Screen
 }
 
 /** A plain back stack; survives rotation as a ViewModel. */
@@ -45,7 +47,15 @@ class Navigator : ViewModel() {
 @Composable
 fun GitNotebookUi(notebooks: Notebooks, nav: Navigator = viewModel()) {
     BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
-    when (val screen = nav.stack.last()) {
+    val screen = nav.stack.last()
+    // Each stack entry gets its own state; otherwise Folder("a") → Folder("a/b") would reuse
+    // the parent's remembered file list.
+    key(nav.stack.size, screen) { ScreenContent(notebooks, nav, screen) }
+}
+
+@Composable
+private fun ScreenContent(notebooks: Notebooks, nav: Navigator, screen: Screen) {
+    when (screen) {
         Screen.Home -> HomeScreen(notebooks, nav)
         Screen.Accounts -> AccountsScreen(notebooks, nav)
         Screen.AddAccount -> AddAccountScreen(notebooks, nav)
@@ -55,5 +65,6 @@ fun GitNotebookUi(notebooks: Notebooks, nav: Navigator = viewModel()) {
         is Screen.History -> HistoryScreen(notebooks, nav, screen)
         is Screen.VersionPreview -> VersionPreviewScreen(notebooks, nav, screen)
         is Screen.Conflicts -> ConflictsScreen(notebooks, nav, screen)
+        is Screen.Image -> ImageViewerScreen(notebooks, nav, screen)
     }
 }

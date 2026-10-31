@@ -1,10 +1,12 @@
 // GitNotebook note editor: a WYSIWYG view over a plain Markdown file.
 //
 // Host contract (Android today, other clients later):
-//   host → editor   window.GitNotebookEditor.load(markdown, { readonly, baseUrl })
+//   host → editor   window.GitNotebookEditor.load(markdown, { readonly, baseUrl, notebookUrl })
 //                   window.GitNotebookEditor.getMarkdown()  → current Markdown
 //   editor → host   window.GitNotebookHost.onReady()
 //                   window.GitNotebookHost.onChange(markdown)   (debounced, only after real edits)
+//                   window.GitNotebookHost.resolveFile(path)    → notebook-relative path or "" (sync)
+//                   window.GitNotebookHost.openImage(path)      (user tapped an image)
 // Without a host (e.g. `npm run dev` in a browser) a sample note is loaded.
 
 import { CrepeBuilder } from '@milkdown/crepe/builder'
@@ -39,30 +41,23 @@ import '@milkdown/crepe/theme/common/placeholder.css'
 import '@milkdown/crepe/theme/common/table.css'
 import '@milkdown/crepe/theme/common/toolbar.css'
 import './style.css'
+import { createImageSupport } from './images.js'
 
 const host = window.GitNotebookHost
 const root = document.getElementById('editor')
 const toolbar = document.getElementById('toolbar')
 
+const images = createImageSupport(host)
+images.handleTaps(root)
+
 let crepe = null
 // YAML front matter is not part of CommonMark; keep it aside so it survives untouched.
 let frontMatter = ''
-// Folder of the note, so relative image paths (e.g. assets/2026-10/a.webp) load from the notebook.
-let baseUrl = document.baseURI
 let changeTimer = null
 
 function splitFrontMatter(markdown) {
   const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(markdown)
   return match ? [match[0], markdown.slice(match[0].length)] : ['', markdown]
-}
-
-function resolveImage(url) {
-  if (!url || /^[a-z][a-z0-9+.-]*:/i.test(url)) return url
-  try {
-    return new URL(url, baseUrl).href
-  } catch {
-    return url
-  }
 }
 
 /**
@@ -105,7 +100,7 @@ function emitChange() {
 
 async function load(markdown, options = {}) {
   // Not a <base> tag: that would also re-resolve the editor's own stylesheet.
-  baseUrl = options.baseUrl ?? document.baseURI
+  images.configure(options)
   const [front, body] = splitFrontMatter(markdown ?? '')
   frontMatter = front
   if (crepe) await crepe.destroy()
@@ -123,7 +118,7 @@ async function load(markdown, options = {}) {
     ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-', rule: '-' }))
     // Align table columns by display width, so Chinese tables line up in desktop editors too.
     ctx.set(remarkGFMPlugin.options.key, { stringLength: displayWidth })
-    // Show relative images from the notebook folder without touching the stored path.
+    // Show images from the notebook without touching the stored path.
     // (Crepe's image-block feature is not used: it rewrites the alt text into a size ratio.)
     ctx.update(imageSchema.key, (prev) => (schemaCtx) => {
       const schema = prev(schemaCtx)
@@ -131,11 +126,12 @@ async function load(markdown, options = {}) {
         ...schema,
         toDOM: (node) => {
           const [tag, attrs] = schema.toDOM(node)
-          return [tag, { ...attrs, src: resolveImage(attrs.src) }]
+          return [tag, { ...attrs, ...images.imageAttrs(node.attrs.src) }]
         },
       }
     })
   })
+  crepe.editor.use(images.plugins)
   crepe.on((listener) => {
     listener.markdownUpdated((_ctx, next, prev) => {
       if (next !== prev) emitChange()

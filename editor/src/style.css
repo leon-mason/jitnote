@@ -167,3 +167,12 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* Images that open full screen when tapped. */
+.milkdown img[data-gn-path] {
+  cursor: zoom-in;
+}
+
+.milkdown img[data-obsidian-embed] {
+  vertical-align: bottom;
+}

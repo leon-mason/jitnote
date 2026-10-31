@@ -39,13 +39,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** Writes the note to disk only when its text actually changed. Safe to call from any thread. */
+/**
+ * Writes the note to disk only when its text actually changed. Safe to call from any thread.
+ * Nothing is written until the user has edited ([markEdited]): just opening a note must never
+ * rewrite it, even if the editor would format some Markdown differently.
+ */
 private class NoteSaver(private val file: File, initial: String) {
     private var saved = initial
 
+    @Volatile
+    var edited = false
+        private set
+
+    fun markEdited() {
+        edited = true
+    }
+
     @Synchronized
     fun save(text: String?): Boolean {
-        if (text == null || text == saved) return false
+        if (!edited || text == null || text == saved) return false
         file.parentFile?.mkdirs()
         file.writeText(text)
         saved = text
@@ -86,7 +98,9 @@ fun EditorScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Editor) {
                 syncing -> Waiting("正在同步，请稍候…")
                 text == null -> Waiting("正在打开…")
                 file.extension.lowercase() in setOf("md", "markdown") ->
-                    RichNoteEditor(notebooks, notebook, root, screen.path, file, text)
+                    RichNoteEditor(notebooks, notebook, root, screen.path, file, text) { image ->
+                        nav.push(Screen.Image(notebook.id, image))
+                    }
                 else -> PlainTextEditor(notebooks, notebook, file, text)
             }
         }
@@ -94,7 +108,15 @@ fun EditorScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Editor) {
 }
 
 @Composable
-private fun RichNoteEditor(notebooks: Notebooks, notebook: Notebook, root: File, path: String, file: File, text: String) {
+private fun RichNoteEditor(
+    notebooks: Notebooks,
+    notebook: Notebook,
+    root: File,
+    path: String,
+    file: File,
+    text: String,
+    onOpenImage: (String) -> Unit,
+) {
     val saver = remember(text) { NoteSaver(file, text) }
     val handle = remember(saver) {
         EditorHandle(onClose = { final ->
@@ -116,7 +138,11 @@ private fun RichNoteEditor(notebooks: Notebooks, notebook: Notebook, root: File,
         readonly = false,
         handle = handle,
         modifier = Modifier.fillMaxSize(),
-        onChange = { saver.save(it) },
+        onChange = {
+            saver.markEdited()
+            saver.save(it)
+        },
+        onOpenImage = onOpenImage,
     )
 }
 
@@ -140,7 +166,10 @@ private fun PlainTextEditor(notebooks: Notebooks, notebook: Notebook, file: File
     }
     BasicTextField(
         value = value,
-        onValueChange = { value = it },
+        onValueChange = {
+            saver.markEdited()
+            value = it
+        },
         textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = MaterialTheme.colorScheme.onSurface,
             fontFamily = FontFamily.Monospace,

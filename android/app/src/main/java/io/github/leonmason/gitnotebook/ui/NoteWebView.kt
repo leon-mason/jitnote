@@ -13,12 +13,14 @@ import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import io.github.leonmason.gitnotebook.data.NoteAssets
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
@@ -57,7 +59,7 @@ class EditorHandle(private val onClose: ((String?) -> Unit)? = null) {
 
 /**
  * The shared web editor (see /editor in the repository) showing one note.
- * Images with relative paths are served straight from the notebook folder.
+ * Images are found like other editors do (see [NoteAssets]) and served from the notebook folder.
  * [onChange] is called on a background thread.
  */
 @SuppressLint("SetJavaScriptEnabled")
@@ -70,11 +72,15 @@ fun NoteWebView(
     handle: EditorHandle,
     modifier: Modifier = Modifier,
     onChange: (String) -> Unit = {},
+    onOpenImage: (notebookPath: String) -> Unit = {},
 ) {
     val latestOnChange by rememberUpdatedState(onChange)
+    val latestOnOpenImage by rememberUpdatedState(onOpenImage)
+    val assets = remember(notebookRoot) { NoteAssets(notebookRoot) }
     val background = MaterialTheme.colorScheme.background.toArgb()
     val folder = notePath.substringBeforeLast('/', "")
-    val baseUrl = "https://$HOST/notebook/" + folder.split('/').filter { it.isNotEmpty() }.joinToString("") { Uri.encode(it) + "/" }
+    val notebookUrl = "https://$HOST/notebook/"
+    val baseUrl = notebookUrl + folder.split('/').filter { it.isNotEmpty() }.joinToString("") { Uri.encode(it) + "/" }
 
     AndroidView(
         modifier = modifier,
@@ -109,7 +115,10 @@ fun NoteWebView(
                     object {
                         @JavascriptInterface
                         fun onReady() {
-                            val options = JSONObject().put("readonly", readonly).put("baseUrl", baseUrl)
+                            val options = JSONObject()
+                                .put("readonly", readonly)
+                                .put("baseUrl", baseUrl)
+                                .put("notebookUrl", notebookUrl)
                             post {
                                 evaluateJavascript(
                                     "window.GitNotebookEditor.load(${JSONObject.quote(content)}, $options)",
@@ -120,6 +129,15 @@ fun NoteWebView(
 
                         @JavascriptInterface
                         fun onChange(markdown: String) = latestOnChange(markdown)
+
+                        @JavascriptInterface
+                        fun resolveFile(path: String): String = assets.resolve(folder, path).orEmpty()
+
+                        @JavascriptInterface
+                        fun openImage(path: String) {
+                            // Only open what resolveFile handed out, i.e. a file inside this notebook.
+                            if (assets.resolve("", path) == path) post { latestOnOpenImage(path) }
+                        }
                     },
                     "GitNotebookHost",
                 )

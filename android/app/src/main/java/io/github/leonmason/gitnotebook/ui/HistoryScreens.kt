@@ -99,6 +99,7 @@ fun VersionPreviewScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Ve
                     readonly = true,
                     handle = remember { EditorHandle() },
                     modifier = Modifier.fillMaxSize(),
+                    onOpenImage = { nav.push(Screen.Image(notebook.id, it)) },
                 )
             }
         }

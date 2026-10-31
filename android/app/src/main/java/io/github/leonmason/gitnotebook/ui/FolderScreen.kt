@@ -1,6 +1,7 @@
 package io.github.leonmason.gitnotebook.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,13 +39,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.leonmason.gitnotebook.data.NoteAssets
 import io.github.leonmason.gitnotebook.data.NoteFiles
 import io.github.leonmason.gitnotebook.data.Notebooks
 import io.github.leonmason.gitnotebook.data.SyncState
@@ -150,6 +157,7 @@ fun FolderScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Folder) {
                         val path = NoteFiles.relativePath(root, entry.file)
                         when {
                             entry.isDirectory -> nav.push(Screen.Folder(notebook.id, path))
+                            NoteAssets.isImage(entry.file) -> nav.push(Screen.Image(notebook.id, path))
                             NoteFiles.isEditable(entry.file) -> nav.push(Screen.Editor(notebook.id, path))
                             else -> scope.launch { snackbar.showSnackbar("这种文件暂时不能在手机上打开") }
                         }
@@ -226,6 +234,25 @@ fun FolderScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Folder) {
     }
 }
 
+/** A small preview of an image file; falls back to an icon while loading or if it can't be read. */
+@Composable
+private fun Thumbnail(file: File) {
+    val image by produceState<ImageBitmap?>(null, file) {
+        value = withContext(Dispatchers.IO) { runCatching { decode(file, maxSide = 160) }.getOrNull() }
+    }
+    val bitmap = image
+    if (bitmap == null) {
+        Icon(Icons.Outlined.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(40.dp).clip(MaterialTheme.shapes.small),
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EntryRow(
@@ -239,15 +266,19 @@ private fun EntryRow(
     Box {
         ListItem(
             leadingContent = {
-                Icon(
-                    when {
-                        entry.isDirectory -> Icons.Outlined.Folder
-                        NoteFiles.isEditable(entry.file) -> Icons.AutoMirrored.Outlined.Notes
-                        else -> Icons.AutoMirrored.Outlined.InsertDriveFile
-                    },
-                    contentDescription = null,
-                    tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (NoteAssets.isImage(entry.file)) {
+                    Thumbnail(entry.file)
+                } else {
+                    Icon(
+                        when {
+                            entry.isDirectory -> Icons.Outlined.Folder
+                            NoteFiles.isEditable(entry.file) -> Icons.AutoMirrored.Outlined.Notes
+                            else -> Icons.AutoMirrored.Outlined.InsertDriveFile
+                        },
+                        contentDescription = null,
+                        tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             headlineContent = { Text(entry.title, maxLines = 1) },
             supportingContent = if (entry.isDirectory) null else ({ Text(friendlyTime(entry.modified)) }),
@@ -255,7 +286,7 @@ private fun EntryRow(
         )
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (!entry.isDirectory) {
-                DropdownMenuItem(text = { Text("历史版本") }, onClick = {
+                DropdownMenuItem(text = { Text("历史版本") }, enabled = !NoteAssets.isImage(entry.file), onClick = {
                     menu = false
                     onHistory()
                 })
