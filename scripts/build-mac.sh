@@ -5,6 +5,7 @@
 #   scripts/build-mac.sh          → mac/build/GitNotebook.app 和 mac/build/GitNotebook-mac-<版本>.zip
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
+#   scripts/build-mac.sh --debug  → 带测试用遥控（见 mac/Sources/UI/DebugHooks.swift）的版本，不打 zip
 #
 # 编辑器用的是 android/app/src/main/assets/editor/（editor/ 的构建产物），和 Android 完全相同。
 
@@ -53,7 +54,9 @@ fi
 echo "编译 Git 笔记本 $VERSION …"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-swiftc "${SWIFT_FLAGS[@]}" -O -parse-as-library \
+EXTRA=()
+[ "${1:-}" = "--debug" ] && EXTRA=(-D GN_DEBUG_HOOKS)
+swiftc "${SWIFT_FLAGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} -O -parse-as-library \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     "$MAC"/Sources/Core/*.swift "$MAC"/Sources/Data/*.swift "$MAC"/Sources/UI/*.swift \
     -o "$APP/Contents/MacOS/GitNotebook"
@@ -80,8 +83,13 @@ bundle_libs "$APP/Contents/MacOS/GitNotebook"
 # @rpath inside the libraries resolves against the app's rpath, so they find each other in Frameworks.
 
 # 没有苹果开发者账号，只做本机签名（ad-hoc）；首次打开需要右键「打开」。
-codesign --force --sign - "$APP"/Contents/Frameworks/*.dylib > /dev/null
-codesign --force --sign - "$APP" > /dev/null
+codesign --force --sign - "$APP"/Contents/Frameworks/*.dylib 2> /dev/null
+codesign --force --sign - "$APP" 2> /dev/null
+
+if [ "${1:-}" = "--debug" ]; then
+    echo "✓ ${APP}（测试版）"
+    exit 0
+fi
 
 ZIP="$BUILD/GitNotebook-mac-$VERSION.zip"
 rm -f "$ZIP"

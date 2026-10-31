@@ -10,17 +10,18 @@
 - **所见即所得**：用户看到的是普通笔记（标题、加粗、列表、待办、表格），存下来的是标准 Markdown，Obsidian / Typora 也能直接打开。
 - **能用已有的仓库**：Obsidian、Typora 的笔记仓库可以直接拿来用，原有文件和图片写法原样保留。
 
-> **项目状态**：早期版本，目前只有 Android 客户端。欢迎试用和反馈，重要笔记请先在电脑上留一份备份。
+> **项目状态**：早期版本，有 Android 客户端和 Mac 客户端（Mac 版刚开始测试）。欢迎试用和反馈，重要笔记请先在电脑上留一份备份。
 
 ## 仓库结构
 
 | 目录 | 内容 |
 | --- | --- |
 | [`android/`](android/) | Android 客户端（Kotlin + Jetpack Compose + [JGit](https://www.eclipse.org/jgit/)） |
+| [`mac/`](mac/) | Mac 客户端（Swift + SwiftUI + [libgit2](https://libgit2.org/)） |
 | [`editor/`](editor/) | 所有客户端共用的笔记编辑器（[Milkdown](https://milkdown.dev/) Crepe，打包成离线网页嵌入 App） |
 | [`docs/`](docs/) | 设计说明 |
 
-以后的 iOS、桌面端也放在这个仓库里，复用 `editor/`，并遵循同一套同步规则（见 [docs/design.md](docs/design.md)）。
+以后的 iOS 等客户端也放在这个仓库里，复用 `editor/`，并遵循同一套同步规则（见 [docs/design.md](docs/design.md)）。
 
 ## 使用方法（Android）
 
@@ -42,8 +43,17 @@
 
 - 令牌所需权限：Gitee 私人令牌保持默认勾选（至少 `user_info`、`projects`）；GitHub classic token 勾选 `repo`。
 - 这些权限能读写你账号下的**所有**仓库，请只在自己的手机上使用，不用时可以随时在 Gitee / GitHub 的设置里删除令牌。
-- 令牌用 Android Keystore 加密后只保存在手机上，App 关闭了系统备份。
+- 令牌用 Android Keystore 加密后只保存在手机上，App 关闭了系统备份；Mac 版保存在本机的钥匙串里。
 - App 只和你自己的 Gitee / GitHub 通信。唯一的例外是检查更新：每天最多一次，匿名查询本项目在 GitHub 上有没有新版本，不带令牌，也不发送任何笔记内容。没有统计和广告。
+
+## 使用方法（Mac）
+
+需要 Apple 芯片的 Mac。
+
+1. 在 [Releases](https://github.com/leon-mason/git-notebook/releases/latest) 下载 `GitNotebook-mac-x.y.z.zip`，解压后把「Git 笔记本」拖到「应用程序」文件夹。
+2. 第一次打开：在「应用程序」里**右键点它 → 打开**，再点「打开」。因为没有苹果开发者签名，直接双击会被系统拦下，只有第一次需要这样做。
+3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分三栏：左边是笔记本切换和文件夹，中间是笔记列表，右边是正在写的笔记。⌘N 新建笔记，⌘R 同步。
+4. 有新版本时会提示更新：下载好后按提示把新版拖到「应用程序」替换即可。更新后第一次同步，系统可能询问是否允许访问钥匙串里的令牌，点「始终允许」。
 
 ## 开发
 
@@ -59,6 +69,18 @@ cd android
 ```
 
 `android/app/src/main/assets/editor/` 是 `editor/` 的构建产物，已经提交到仓库，所以只改 Android 代码时不需要 Node。改了 `editor/` 后记得重新 `npm run build` 并一起提交。
+
+### Mac
+
+不需要 Xcode，只要命令行工具和 Homebrew 的 libgit2：
+
+```bash
+brew install libgit2
+scripts/build-mac.sh --test   # 同步引擎等测试（和 Android 的测试用例一一对应）
+scripts/build-mac.sh --run    # 构建 mac/build/GitNotebook.app 并打开
+```
+
+`--debug` 构建带测试用遥控的版本（见 [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)），用来在没有屏幕录制权限的机器上自动操作和截图；它的令牌存在文件里，不碰钥匙串。设计见 [Mac 客户端设计](docs/superpowers/specs/2026-10-31-mac-client-design.md)。
 
 ### 编辑器
 
@@ -80,7 +102,7 @@ npm run build   # 输出到 android/app/src/main/assets/editor/
 scripts/release.sh
 ```
 
-脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布完成。
+脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、打包 APK 和 Mac 版、在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布完成。
 
 - `scripts/release.sh -n` 只预览版本号和提交，不做改动；`-m "更新内容"` 直接给出更新内容；`-y` 跳过确认。
 - **升级大版本**：把 `scripts/release.sh` 开头的 `MAJOR` 改大（如 `2`）并提交，下次发版就是 `2.0.0`，之后是 `2.1.0`、`2.2.0`……

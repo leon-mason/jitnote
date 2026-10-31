@@ -10,17 +10,18 @@ A notes app for your phone that keeps your notes in **your own** private GitHub 
 - **WYSIWYG**: you see an ordinary note (headings, bold, lists, to-dos, tables). What's saved is standard Markdown that Obsidian / Typora can open directly.
 - **Works with existing repositories**: use your Obsidian or Typora notes repository as-is. Existing files and image references are left untouched.
 
-> **Status**: early version. Only the Android client exists so far, and the UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
+> **Status**: early version. There is an Android client and a Mac client (the Mac one is new), and the UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
 
 ## Repository layout
 
 | Directory | Contents |
 | --- | --- |
 | [`android/`](android/) | Android client (Kotlin + Jetpack Compose + [JGit](https://www.eclipse.org/jgit/)) |
+| [`mac/`](mac/) | Mac client (Swift + SwiftUI + [libgit2](https://libgit2.org/)) |
 | [`editor/`](editor/) | Note editor shared by all clients ([Milkdown](https://milkdown.dev/) Crepe, bundled as an offline web page embedded in the app) |
 | [`docs/`](docs/) | Design notes (in Chinese) |
 
-Future iOS and desktop clients will live in this repository too, reuse `editor/`, and follow the same sync rules (see [docs/design.md](docs/design.md)).
+Future clients such as iOS will live in this repository too, reuse `editor/`, and follow the same sync rules (see [docs/design.md](docs/design.md)).
 
 ## Usage (Android)
 
@@ -42,8 +43,17 @@ When a new version is out, the app offers to update when you open it (it checks 
 
 - Required token permissions: for a Gitee personal token, keep the default selection (at least `user_info` and `projects`); for a GitHub classic token, select `repo`.
 - These permissions grant read/write access to **all** repositories in your account. Only use the token on your own phone, and delete it in your Gitee / GitHub settings whenever you no longer need it.
-- The token is encrypted with the Android Keystore and stored only on the phone. System backup is disabled for the app.
+- The token is encrypted with the Android Keystore and stored only on the phone, with system backup disabled. On the Mac it is kept in the local keychain.
 - The app only talks to your own Gitee / GitHub account. The one exception is the update check: at most once a day, it asks this project's GitHub page anonymously whether there is a new version. No token and no note content is sent. There are no analytics or ads.
+
+## Usage (Mac)
+
+Requires a Mac with Apple silicon.
+
+1. Download `GitNotebook-mac-x.y.z.zip` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest), unzip it, and drag "Git 笔记本" into Applications.
+2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.
+3. Connecting an account and adding notebooks work as on Android. The window has three columns: notebook switcher and folders, the note list, and the open note. ⌘N creates a note, ⌘R syncs.
+4. When a new version is out, the app offers to download it; drag the new app into Applications to replace the old one. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
 
 ## Development
 
@@ -59,6 +69,18 @@ cd android
 ```
 
 `android/app/src/main/assets/editor/` is the build output of `editor/` and is committed, so you don't need Node if you only change Android code. After changing `editor/`, run `npm run build` again and commit the output together with your change.
+
+### Mac
+
+No Xcode needed — just the Command Line Tools and Homebrew's libgit2:
+
+```bash
+brew install libgit2
+scripts/build-mac.sh --test   # sync engine and other tests (the same cases as Android's)
+scripts/build-mac.sh --run    # builds mac/build/GitNotebook.app and opens it
+```
+
+`--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/superpowers/specs/2026-10-31-mac-client-design.md) (in Chinese).
 
 ### Editor
 
@@ -80,7 +102,7 @@ On `main`, with everything committed and pushed, run:
 scripts/release.sh
 ```
 
-The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK under [Releases](https://github.com/leon-mason/git-notebook/releases).
+The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK and the Mac app under [Releases](https://github.com/leon-mason/git-notebook/releases).
 
 - `scripts/release.sh -n` previews the version and commits without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation.
 - **Bumping the major version**: raise `MAJOR` at the top of `scripts/release.sh` (e.g. to `2`) and commit. The next release is `2.0.0`, then `2.1.0`, `2.2.0`, …

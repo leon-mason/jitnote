@@ -106,6 +106,10 @@ App 不在应用商店上架，新版本发布在本项目的 [GitHub Releases](
 - 查询是匿名的，不带令牌，不发送任何笔记内容。
 - 正式包在 GitHub Actions 里用固定的正式密钥签名（`.github/workflows/release.yml`）。Android 只允许同一密钥签名的新版本覆盖旧版本，所以这把密钥不能换、不能丢。
 
+## Mac 客户端
+
+原生 Swift / SwiftUI，三栏窗口，Git 用 libgit2，同步规则逐条移植自 Android 并共用同一套测试用例。详见 [Mac 客户端设计](superpowers/specs/2026-10-31-mac-client-design.md)。
+
 ## Android 技术选型
 
 | 项目 | 选择 | 原因 |
@@ -127,4 +131,4 @@ JGit 被隔离在 App 自己的配置里（不读系统 git、不读 `~/.gitconf
 - 自动同步（打开 App、切回前台时）
 - 中文以外的界面语言
 - 在编辑器里把 `[[双链]]`、callout 渲染成可点的链接 / 提示框（目前按普通文字显示，但保存不会破坏）
-- iOS / 桌面客户端
+- iOS 客户端；Windows / Linux 桌面端

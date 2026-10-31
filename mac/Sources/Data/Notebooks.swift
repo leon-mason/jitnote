@@ -78,7 +78,7 @@ final class Notebooks: ObservableObject {
 
     /// Creates a private repository in the cloud, downloads it and records the notebook.
     func create(name: String, account: Account, repoPath: String, onProgress: @escaping (String) -> Void) async throws -> Notebook {
-        let token = try token(account)
+        let token = try await token(account)
         onProgress("正在云端创建笔记本…")
         var path = repoPath
         var created: HostingApi.CreatedRepo?
@@ -111,7 +111,7 @@ final class Notebooks: ObservableObject {
     /// Repositories in [account], each marked with whether it is already a notebook on this Mac.
     func listRemote(_ account: Account) async throws -> [(repo: HostingApi.RemoteRepo, isLocal: Bool)] {
         let local = Set(state.notebooks.map { Self.sameRepoKey($0.remoteUrl) })
-        return try await HostingApi.listRepos(account.provider, token: token(account))
+        return try await HostingApi.listRepos(account.provider, token: await token(account))
             .map { ($0, local.contains(Self.sameRepoKey($0.cloneUrl))) }
     }
 
@@ -146,7 +146,7 @@ final class Notebooks: ObservableObject {
             lastSyncAt: nowMillis()
         )
         onProgress("正在下载笔记本…")
-        let credentials = try credentials(account)
+        let credentials = try await credentials(account)
         let target = dir(notebook)
         try await Self.background {
             try NotebookGit.clone(url: url, into: target, credentials: credentials) { received, total in
@@ -189,10 +189,25 @@ final class Notebooks: ObservableObject {
         return (try? await run(notebook) { try $0.commitAll(author: author, device: device, message: message) }) ?? false
     }
 
+    /// Records a version of every notebook with changes, before returning; used when the app quits.
+    func commitAllNow() {
+        for notebook in state.notebooks {
+            guard let account = account(notebook.accountId) else { continue }
+            let git = NotebookGit(workTree: dir(notebook)), author = author(account), device = device
+            queue(for: notebook).sync { _ = try? git.commitAll(author: author, device: device) }
+        }
+    }
+
+    private func queue(for notebook: Notebook) -> DispatchQueue {
+        if let queue = queues[notebook.id] { return queue }
+        let queue = DispatchQueue(label: "notebook.\(notebook.id)")
+        queues[notebook.id] = queue
+        return queue
+    }
+
     /// Runs [body] on the notebook's own serial queue, so Git operations never overlap.
     func run<T>(_ notebook: Notebook, _ body: @escaping (NotebookGit) throws -> T) async throws -> T {
-        let queue = queues[notebook.id] ?? DispatchQueue(label: "notebook.\(notebook.id)")
-        queues[notebook.id] = queue
+        let queue = queue(for: notebook)
         let git = NotebookGit(workTree: dir(notebook))
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try body(git) }) }
@@ -218,7 +233,7 @@ final class Notebooks: ObservableObject {
             guard let account = account(notebook.accountId) else {
                 throw SyncError(.auth, "这个笔记本用的云端账号已断开，请重新连接")
             }
-            let credentials = try credentials(account), author = author(account), device = device
+            let credentials = try await credentials(account), author = author(account), device = device
             let result = try await run(notebook) { try $0.sync(credentials: credentials, author: author, device: device) }
             updateNotebook(notebook.id) {
                 $0.lastSyncAt = nowMillis()
@@ -289,15 +304,16 @@ final class Notebooks: ObservableObject {
 
     private func author(_ account: Account) -> Author { Author(name: account.login, email: account.email) }
 
-    private func token(_ account: Account) throws -> String {
-        guard let token = TokenVault.load(account: account.id) else {
+    private func token(_ account: Account) async throws -> String {
+        let id = account.id
+        guard let token = try await Self.background({ TokenVault.load(account: id) }) else {
             throw SyncError(.auth, "找不到这个账号的令牌，请到「云端账号」里重新连接")
         }
         return token
     }
 
-    private func credentials(_ account: Account) throws -> Credentials {
-        Credentials(username: account.login, password: try token(account))
+    private func credentials(_ account: Account) async throws -> Credentials {
+        Credentials(username: account.login, password: try await token(account))
     }
 
     private static func sameRepoKey(_ url: String) -> String {

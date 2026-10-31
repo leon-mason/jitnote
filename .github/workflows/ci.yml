@@ -34,3 +34,11 @@ jobs:
           cache-dependency-path: editor/package-lock.json
       - run: npm ci
       - run: npm test
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install libgit2
+      - run: scripts/build-mac.sh --test
+      - run: scripts/build-mac.sh

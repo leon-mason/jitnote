@@ -1,5 +1,5 @@
-# Pushing a tag like v0.2.0 builds the signed APK and publishes it as a GitHub Release.
-# The app's update check reads the latest release, and shows the tag message as the update notes.
+# Pushing a tag like v0.2.0 builds the signed APK and the Mac app and publishes them as a GitHub Release.
+# The apps' update checks read the latest release, and show the tag message as the update notes.
 name: Release
 
 on:
@@ -52,3 +52,17 @@ jobs:
           apk="git-notebook-$VERSION.apk"
           cp android/app/build/outputs/apk/release/app-release.apk "$apk"
           gh release create "$GITHUB_REF_NAME" "$apk" --verify-tag --title "$VERSION" --notes-from-tag
+
+  mac:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install libgit2
+      - run: scripts/build-mac.sh --test
+      - run: scripts/build-mac.sh
+
+      - name: Add the Mac app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "mac/build/GitNotebook-mac-${GITHUB_REF_NAME#v}.zip"

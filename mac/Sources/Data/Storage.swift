@@ -23,8 +23,26 @@ final class StateStore {
 }
 
 /// Access tokens in the login Keychain, readable only by this app on this Mac.
+/// Reading may show a Keychain prompt (e.g. after an update), so never call it on the main thread.
 enum TokenVault {
     private static let service = "io.github.leonmason.gitnotebook"
+
+    #if GN_DEBUG_HOOKS
+    // Test builds keep tokens in a file next to their state, so automated runs never touch the real Keychain.
+    private static var testFile: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("GitNotebook/test-tokens.json")
+    }
+
+    private static var testTokens: [String: String] {
+        get { (try? Data(contentsOf: testFile)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:] }
+        set { try? JSONEncoder().encode(newValue).write(to: testFile) }
+    }
+
+    static func save(_ token: String, account: String) throws { testTokens[account] = token }
+    static func load(account: String) -> String? { testTokens[account] }
+    static func delete(account: String) { testTokens[account] = nil }
+    #else
 
     static func save(_ token: String, account: String) throws {
         delete(account: account)
@@ -60,4 +78,5 @@ enum TokenVault {
         ]
         SecItemDelete(query as CFDictionary)
     }
+    #endif
 }
