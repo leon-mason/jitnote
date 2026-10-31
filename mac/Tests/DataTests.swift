@@ -50,26 +50,35 @@ enum NoteIndexTests {
             try expectEqual(NoteIndex.notes(in: root, sort: .titleDesc).map(\.title), ["C", "b", "a"])
         },
 
-        TestCase("buildsTheFolderTreeWithNoteCounts") { root in
-            try write(root, "a.md")
+        TestCase("buildsTheFileTreeLikeObsidian") { root in
+            try write(root, "b.md")
+            try write(root, "A.txt")
             try write(root, "会议/2026/x.md")
             try write(root, "会议/2026/y.md")
             try write(root, "会议/2025/z.md")
+            try write(root, "会议/议程.md")
             try write(root, "技术/安卓/发布/r.md")
             try write(root, "附件/cat.png")
             try FileManager.default.createDirectory(at: root.appendingPathComponent("空文件夹"), withIntermediateDirectories: true)
             try write(root, ".obsidian/w.md")
+            try write(root, ".gitignore", "x")
 
-            let tree = NoteIndex.folders(in: root)
-            // Chinese names sort by pinyin: fu, hui, ji, kong.
-            try expectEqual(tree.map(\.name), ["附件", "会议", "技术", "空文件夹"])
+            let tree = NoteIndex.tree(in: root)
+            // Folders first, then files with their extensions; Chinese names sort by pinyin: fu, hui, ji, kong.
+            try expectEqual(tree.map(\.name), ["附件", "会议", "技术", "空文件夹", "A.txt", "b.md"])
             let meetings = tree[1]
-            try expectEqual(meetings.noteCount, 3)
-            try expectEqual(meetings.children.map(\.name), ["2025", "2026"])
-            try expectEqual(meetings.children[1].path, "会议/2026")
-            try expectEqual(meetings.children[1].noteCount, 2)
-            try expectEqual(tree[2].children[0].children[0].noteCount, 1)
+            try expect(meetings.isFolder)
+            try expectEqual(meetings.noteCount, 4)
+            try expectEqual(meetings.children!.map(\.name), ["2025", "2026", "议程.md"])
+            try expectEqual(meetings.children![1].path, "会议/2026")
+            try expectEqual(meetings.children![1].noteCount, 2)
+            try expectEqual(meetings.children![2].path, "会议/议程.md")
+            try expect(!meetings.children![2].isFolder)
+            try expect(meetings.children![2].children == nil)
+            try expectEqual(tree[0].children!.map(\.name), ["cat.png"])
             try expectEqual(tree[0].noteCount, 0)
+            try expect(tree[3].children == nil)
+            try expectEqual(tree[2].children![0].children![0].children!.map(\.name), ["r.md"])
         },
 
         TestCase("previewSkipsFrontMatterTitleAndMarkup") { _ in

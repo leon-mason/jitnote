@@ -5,7 +5,7 @@
 #   scripts/build-mac.sh          → mac/build/GitNotebook.app 和 mac/build/GitNotebook-mac-<版本>.zip
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
-#   scripts/build-mac.sh --debug  → 带测试用遥控（见 mac/Sources/UI/DebugHooks.swift）的版本，不打 zip
+#   scripts/build-mac.sh --debug  → mac/build/GitNotebookDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
 #
 # 编辑器用的是 android/app/src/main/assets/editor/（editor/ 的构建产物），和 Android 完全相同。
 
@@ -15,6 +15,8 @@ cd "$(git rev-parse --show-toplevel)"
 MAC=mac
 BUILD="$MAC/build"
 APP="$BUILD/GitNotebook.app"
+# The test build goes next to the real one, so a copy that is open stays untouched.
+[ "${1:-}" = "--debug" ] && APP="$BUILD/GitNotebookDebug.app"
 VERSION=$(sed -n 's/^val appVersion = "\(.*\)"$/\1/p' android/app/build.gradle.kts)
 IFS=. read -r major minor patch <<< "$VERSION"
 BUILD_NUMBER=$((major * 10000 + minor * 100 + patch))

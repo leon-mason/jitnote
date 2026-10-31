@@ -16,15 +16,17 @@ enum NoteIndex {
         var id: String { path }
     }
 
-    struct Folder: Identifiable, Hashable {
+    /// A file or folder in the sidebar tree, named in full like Obsidian's file explorer.
+    struct Entry: Identifiable, Hashable {
         let path: String
         let name: String
-        let children: [Folder]
+        let isFolder: Bool
+        /// Contents of a folder; nil for files and empty folders, so `OutlineGroup` shows no disclosure arrow.
+        let children: [Entry]?
+        /// Notes in a folder, including its subfolders; 0 for files.
         let noteCount: Int
 
         var id: String { path }
-        /// For `OutlineGroup`/`List(children:)`: nil when there is nothing to expand.
-        var subfolders: [Folder]? { children.isEmpty ? nil : children }
     }
 
     static let noteExtensions: Set<String> = ["md", "markdown", "txt"]
@@ -61,22 +63,41 @@ enum NoteIndex {
         }
     }
 
-    /// The folders under [root] as a tree, each with how many notes it holds including subfolders.
-    static func folders(in root: URL) -> [Folder] { children(of: root, root: root) }
+    /// Every visible file and folder under [root]: folders first, then files, each by name.
+    static func tree(in root: URL) -> [Entry] { entries(in: root, root: root) }
 
-    private static func children(of dir: URL, root: URL) -> [Folder] {
-        let entries = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        return entries
-            .filter { isDirectory($0) && !$0.lastPathComponent.hasPrefix(".") }
-            .sorted { compareTitles($0.lastPathComponent, $1.lastPathComponent) }
-            .map { child in
-                Folder(
-                    path: relativePath(of: child, in: root),
-                    name: child.lastPathComponent,
-                    children: children(of: child, root: root),
-                    noteCount: visibleFiles(under: child).filter(isNote).count
-                )
-            }
+    private static func entries(in dir: URL, root: URL) -> [Entry] {
+        let items = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") }
+            .map { (url: $0, isFolder: isDirectory($0)) }
+            .sorted { a, b in a.isFolder != b.isFolder ? a.isFolder : compareTitles(a.url.lastPathComponent, b.url.lastPathComponent) }
+        return items.map { item in
+            let children = item.isFolder ? entries(in: item.url, root: root) : []
+            return Entry(
+                path: relativePath(of: item.url, in: root),
+                name: item.url.lastPathComponent.precomposedStringWithCanonicalMapping,
+                isFolder: item.isFolder,
+                children: children.isEmpty ? nil : children,
+                noteCount: item.isFolder ? countNotes(children) : 0
+            )
+        }
+    }
+
+    private static func countNotes(_ entries: [Entry]) -> Int {
+        entries.reduce(0) { total, entry in
+            total + (entry.isFolder ? entry.noteCount : (noteExtensions.contains((entry.name as NSString).pathExtension.lowercased()) ? 1 : 0))
+        }
+    }
+
+    /// Text files the plain editor can open (same list as Android).
+    static let textExtensions: Set<String> = [
+        "md", "markdown", "txt", "text", "json", "yml", "yaml", "toml", "csv", "tsv",
+        "html", "htm", "css", "js", "ts", "kt", "java", "py", "sh", "xml", "ini", "conf", "log", "org", "rst", "tex",
+    ]
+
+    static func isEditable(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext.isEmpty || textExtensions.contains(ext)
     }
 
     /// Chinese by pinyin, Latin letters ignoring case.

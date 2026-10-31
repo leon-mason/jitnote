@@ -52,7 +52,7 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 
 1. Download `GitNotebook-mac-x.y.z.zip` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest), unzip it, and drag "Git 笔记本" into Applications.
 2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.
-3. Connecting an account and adding notebooks work as on Android. The window has three columns: notebook switcher and folders, the note list, and the open note. ⌘N creates a note, ⌘R syncs.
+3. Connecting an account and adding notebooks work as on Android. The window has three columns: the notebook switcher with every file and folder (full names, like Obsidian), the note list, and the open note. ⌘N creates a note, ⌘R syncs.
 4. When a new version is out, the app offers to download it; drag the new app into Applications to replace the old one. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
 
 ## Development

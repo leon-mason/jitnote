@@ -64,7 +64,7 @@ struct NotebookView: View {
     @State private var folder = ""
     @State private var selection: String?
     @State private var notes: [NoteIndex.Note]?
-    @State private var tree: [NoteIndex.Folder] = []
+    @State private var tree: [NoteIndex.Entry] = []
     @State private var total = 0
     @State private var conflictCount = 0
     @State private var refresh = 0
@@ -97,7 +97,9 @@ struct NotebookView: View {
     var body: some View {
         NavigationSplitView {
             Sidebar(notebook: notebook, tree: tree, total: total, folder: $folder,
+                    onOpenFile: open,
                     onNewFolder: { prompt = .newFolder },
+                    onHistory: { historyPath = $0 },
                     onRename: { prompt = .rename(root.appendingPathComponent($0)) },
                     onDelete: { deleting = root.appendingPathComponent($0) },
                     addingNotebook: $addingNotebook)
@@ -186,18 +188,18 @@ struct NotebookView: View {
     private var detail: some View {
         if syncing {
             Waiting(message: "正在同步，请稍候…")
-        } else if let path = selection, let note = notes?.first(where: { $0.path == path }) {
-            NoteDetail(notebook: notebook, root: root, note: note, bridge: bridge,
+        } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
+            NoteDetail(root: root, path: path, bridge: bridge,
                        onSaved: {},
                        onClose: {
                            notebooks.commitInBackground(notebook)
                            refresh += 1
                        },
                        onOpenImage: { image = root.appendingPathComponent($0) })
-                .id(note.path)
+                .id(path)
                 .toolbar {
                     ToolbarItem {
-                        Button { historyPath = note.path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
+                        Button { historyPath = path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
                             .help("历史版本")
                     }
                 }
@@ -228,15 +230,27 @@ struct NotebookView: View {
             self.folder = ""
             return
         }
-        let (shown, folders, all) = await Task.detached {
+        let (shown, entries, all) = await Task.detached {
             let shown = NoteIndex.notes(in: root, sort: sort, folder: folder)
             let all = folder.isEmpty ? shown.count : NoteIndex.notes(in: root, sort: sort).count
-            return (shown, NoteIndex.folders(in: root), all)
+            return (shown, NoteIndex.tree(in: root), all)
         }.value
         notes = shown
-        tree = folders
+        tree = entries
         total = all
         conflictCount = await notebooks.conflicts(notebook).count
+    }
+
+    /// A file picked in the sidebar: notes and text open on the right, pictures in the viewer,
+    /// anything else in the Mac app that handles it.
+    private func open(_ path: String) {
+        if NoteAssets.isImage(path) {
+            image = root.appendingPathComponent(path)
+        } else if NoteIndex.isEditable(path) {
+            selection = path
+        } else {
+            NSWorkspace.shared.open(root.appendingPathComponent(path))
+        }
     }
 
     private func sync() {
@@ -318,48 +332,53 @@ private struct PathItem: Identifiable {
 }
 
 private struct NoteDetail: View {
-    let notebook: Notebook
     let root: URL
-    let note: NoteIndex.Note
+    let path: String
     let bridge: EditorBridge
     let onSaved: () -> Void
     let onClose: () -> Void
     let onOpenImage: (String) -> Void
     @State private var content: String?
 
+    private var url: URL { root.appendingPathComponent(path) }
+
     var body: some View {
         Group {
             if let content {
-                if ["md", "markdown"].contains(note.url.pathExtension.lowercased()) {
-                    RichEditor(root: root, path: note.path, content: content, bridge: bridge,
+                if ["md", "markdown"].contains(url.pathExtension.lowercased()) {
+                    RichEditor(root: root, path: path, content: content, bridge: bridge,
                                onSaved: onSaved, onOpenImage: onOpenImage, onClose: onClose)
                 } else {
-                    PlainEditor(file: note.url, initial: content, bridge: bridge, onSaved: onSaved, onClose: onClose)
+                    PlainEditor(file: url, initial: content, bridge: bridge, onSaved: onSaved, onClose: onClose)
                 }
             } else {
                 Waiting(message: "正在打开…")
             }
         }
         .task {
-            let url = note.url
+            let url = url
             content = await Task.detached { (try? String(contentsOf: url, encoding: .utf8)) ?? "" }.value
         }
     }
 }
 
-/// Left column: notebook switcher, "全部笔记" and the folder tree.
+/// Left column: notebook switcher, "全部笔记" and every file and folder, like Obsidian's file explorer.
 private struct Sidebar: View {
     let notebook: Notebook
-    let tree: [NoteIndex.Folder]
+    let tree: [NoteIndex.Entry]
     let total: Int
     @Binding var folder: String
+    let onOpenFile: (String) -> Void
     let onNewFolder: () -> Void
+    let onHistory: (String) -> Void
     let onRename: (String) -> Void
     let onDelete: (String) -> Void
     @Binding var addingNotebook: Bool
 
     @EnvironmentObject private var notebooks: Notebooks
     @Environment(\.openSettings) private var openSettings
+    /// What is highlighted: "" for all notes, or a file or folder path.
+    @State private var highlighted = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -381,23 +400,23 @@ private struct Sidebar: View {
             .padding(.vertical, 8)
             .help("切换笔记本")
 
-            List(selection: Binding(get: { folder }, set: { folder = $0 ?? "" })) {
+            List(selection: Binding(get: { highlighted }, set: { pick($0 ?? "") })) {
                 Label { HStack { Text("全部笔记"); Spacer(); Text("\(total)").foregroundStyle(.secondary) } }
                     icon: { Image(systemName: "note.text") }
                     .tag("")
-                Section("文件夹") {
-                    OutlineGroup(tree, children: \.subfolders) { item in
-                        Label { HStack { Text(item.name); Spacer(); Text("\(item.noteCount)").foregroundStyle(.secondary) } }
-                            icon: { Image(systemName: "folder") }
-                            .tag(item.path)
-                            .contextMenu {
-                                Button("重命名…") { onRename(item.path) }
-                                Button("删除…", role: .destructive) { onDelete(item.path) }
-                            }
+                Section("文件") {
+                    OutlineGroup(tree, children: \.children) { entry in
+                        row(entry)
+                            .tag(entry.path)
+                            .contextMenu { menu(entry) }
                     }
                 }
             }
             .listStyle(.sidebar)
+            .onAppear { highlighted = folder }
+            .onChange(of: folder) { _, value in
+                if entry(at: highlighted)?.isFolder != false || value.isEmpty { highlighted = value }
+            }
 
             Divider()
             HStack {
@@ -407,6 +426,55 @@ private struct Sidebar: View {
             }
             .padding(10)
         }
+    }
+
+    private func row(_ entry: NoteIndex.Entry) -> some View {
+        Label {
+            HStack {
+                Text(entry.name).lineLimit(1).truncationMode(.middle)
+                if entry.isFolder {
+                    Spacer()
+                    Text("\(entry.noteCount)").foregroundStyle(.secondary)
+                }
+            }
+        } icon: {
+            Image(systemName: icon(entry))
+        }
+    }
+
+    @ViewBuilder
+    private func menu(_ entry: NoteIndex.Entry) -> some View {
+        if !entry.isFolder && NoteIndex.isEditable(entry.path) {
+            Button("历史版本…") { onHistory(entry.path) }
+        }
+        Button("重命名…") { onRename(entry.path) }
+        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([notebooks.dir(notebook).appendingPathComponent(entry.path)]) }
+        Divider()
+        Button("删除…", role: .destructive) { onDelete(entry.path) }
+    }
+
+    private func icon(_ entry: NoteIndex.Entry) -> String {
+        if entry.isFolder { return "folder" }
+        if NoteAssets.isImage(entry.path) { return "photo" }
+        return NoteIndex.isEditable(entry.path) ? "doc.text" : "doc"
+    }
+
+    /// A folder narrows the note list; a file opens.
+    private func pick(_ path: String) {
+        highlighted = path
+        if path.isEmpty || entry(at: path)?.isFolder == true {
+            folder = path
+        } else {
+            onOpenFile(path)
+        }
+    }
+
+    private func entry(at path: String, in entries: [NoteIndex.Entry]? = nil) -> NoteIndex.Entry? {
+        for entry in entries ?? tree {
+            if entry.path == path { return entry }
+            if path.hasPrefix(entry.path + "/"), let found = self.entry(at: path, in: entry.children ?? []) { return found }
+        }
+        return nil
     }
 }
 
