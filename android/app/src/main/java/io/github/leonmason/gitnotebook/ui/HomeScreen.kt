@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.leonmason.gitnotebook.data.AppUpdates
 import io.github.leonmason.gitnotebook.data.Notebook
 import io.github.leonmason.gitnotebook.data.Notebooks
 import io.github.leonmason.gitnotebook.data.SyncState
@@ -59,13 +60,14 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(notebooks: Notebooks, nav: Navigator) {
+fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     val state by notebooks.state.collectAsStateWithLifecycle()
     val syncStates by notebooks.syncStates.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var renaming by remember { mutableStateOf<Notebook?>(null) }
     var deleting by remember { mutableStateOf<Pair<Notebook, Boolean>?>(null) }
+    var menu by remember { mutableStateOf(false) }
 
     SyncMessages(notebooks, syncStates, snackbar)
 
@@ -76,6 +78,16 @@ fun HomeScreen(notebooks: Notebooks, nav: Navigator) {
                 actions = {
                     IconButton(onClick = { nav.push(Screen.Accounts) }) {
                         Icon(Icons.Outlined.AccountCircle, contentDescription = "云端账号")
+                    }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("检查更新") }, onClick = {
+                                menu = false
+                                updates.checkNow()
+                            })
+                            DropdownMenuItem(text = { Text("当前版本 ${updates.currentVersion}") }, onClick = {}, enabled = false)
+                        }
                     }
                 },
             )

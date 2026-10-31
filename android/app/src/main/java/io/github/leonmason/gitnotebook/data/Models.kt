@@ -43,4 +43,6 @@ data class Notebook(
 data class AppState(
     val accounts: List<Account> = emptyList(),
     val notebooks: List<Notebook> = emptyList(),
+    /** Last successful check for a new app version, see [AppUpdates]. */
+    val lastUpdateCheckAt: Long? = null,
 )

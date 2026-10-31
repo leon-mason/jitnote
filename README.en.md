@@ -34,12 +34,14 @@ Requires Android 8.0 or later.
 
 Deleting a notebook only removes the copy on the phone; the repository in the cloud is not affected.
 
+When a new version is out, the app offers to update when you open it (it checks at most once a day). You can also check by hand from the home screen's "⋮ → 检查更新" (Check for updates).
+
 ### Tokens and privacy
 
 - Required token permissions: for a Gitee personal token, keep the default selection (at least `user_info` and `projects`); for a GitHub classic token, select `repo`.
 - These permissions grant read/write access to **all** repositories in your account. Only use the token on your own phone, and delete it in your Gitee / GitHub settings whenever you no longer need it.
 - The token is encrypted with the Android Keystore and stored only on the phone. System backup is disabled for the app.
-- The app only talks to your own Gitee / GitHub account. It connects to no other server and has no analytics or ads.
+- The app only talks to your own Gitee / GitHub account. The one exception is the update check: at most once a day, it asks this project's GitHub page anonymously whether there is a new version. No token and no note content is sent. There are no analytics or ads.
 
 ## Development
 
@@ -51,7 +53,7 @@ Requires JDK 17 and Android SDK 35.
 cd android
 ./gradlew :app:testDebugUnitTest   # sync engine tests (a local bare repository stands in for the cloud)
 ./gradlew :app:assembleDebug       # debug build
-./gradlew :app:assembleRelease     # release build (currently signed with the debug key for easy self-install)
+./gradlew :app:assembleRelease     # release build (local builds are signed with the debug key for easy self-install)
 ```
 
 `android/app/src/main/assets/editor/` is the build output of `editor/` and is committed, so you don't need Node if you only change Android code. After changing `editor/`, run `npm run build` again and commit the output together with your change.
@@ -67,6 +69,21 @@ npm run dev     # debug in the browser (loads a sample note when there's no host
 npm test        # opening and saving a note must not change it (including Obsidian syntax)
 npm run build   # outputs to android/app/src/main/assets/editor/
 ```
+
+### Publishing a new version
+
+1. Bump `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0`), then commit and push.
+2. Create and push an annotated version tag. Its message is what the app shows as the update notes:
+
+   ```bash
+   git tag -a v0.2.0 -m "· 插入图片
+   · 修复同步偶尔失败"
+   git push origin v0.2.0
+   ```
+
+3. GitHub Actions runs the tests, signs the APK with the release key, and publishes `git-notebook-0.2.0.apk` under [Releases](https://github.com/leon-mason/git-notebook/releases). It fails if the tag doesn't match `appVersion`.
+
+The release signing key is kept in the repository secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`). **Always sign with the same key**: an APK signed with a different key can't update an installed app.
 
 ### Local test server for debug builds
 

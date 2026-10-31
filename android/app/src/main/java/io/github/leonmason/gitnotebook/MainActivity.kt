@@ -11,10 +11,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val notebooks = (application as GitNotebookApp).notebooks
+        val app = application as GitNotebookApp
         setContent {
             GitNotebookTheme {
-                GitNotebookUi(notebooks)
+                GitNotebookUi(app.notebooks, app.updates)
             }
         }
     }

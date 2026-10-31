@@ -34,12 +34,14 @@
 
 删除笔记本只删除手机上的副本，云端仓库不受影响。
 
+有新版本时，打开 App 会提示更新（每天最多查一次），也可以在首页右上角「⋮ → 检查更新」手动查。
+
 ### 令牌和隐私
 
 - 令牌所需权限：Gitee 私人令牌保持默认勾选（至少 `user_info`、`projects`）；GitHub classic token 勾选 `repo`。
 - 这些权限能读写你账号下的**所有**仓库，请只在自己的手机上使用，不用时可以随时在 Gitee / GitHub 的设置里删除令牌。
 - 令牌用 Android Keystore 加密后只保存在手机上，App 关闭了系统备份。
-- App 只和你自己的 Gitee / GitHub 通信，不连接任何其他服务器，没有统计和广告。
+- App 只和你自己的 Gitee / GitHub 通信。唯一的例外是检查更新：每天最多一次，匿名查询本项目在 GitHub 上有没有新版本，不带令牌，也不发送任何笔记内容。没有统计和广告。
 
 ## 开发
 
@@ -51,7 +53,7 @@
 cd android
 ./gradlew :app:testDebugUnitTest   # 同步引擎测试（用本地 bare 仓库模拟云端）
 ./gradlew :app:assembleDebug       # 调试包
-./gradlew :app:assembleRelease     # 正式包（目前用调试签名，方便自己安装）
+./gradlew :app:assembleRelease     # 正式包（本地构建用调试签名，方便自己安装）
 ```
 
 `android/app/src/main/assets/editor/` 是 `editor/` 的构建产物，已经提交到仓库，所以只改 Android 代码时不需要 Node。改了 `editor/` 后记得重新 `npm run build` 并一起提交。
@@ -67,6 +69,21 @@ npm run dev     # 浏览器里调试（没有宿主时会加载示例笔记）
 npm test        # 打开再保存不改变笔记（含 Obsidian 写法）
 npm run build   # 输出到 android/app/src/main/assets/editor/
 ```
+
+### 发布新版本
+
+1. 改 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion`（如 `0.2.0`），提交并推送。
+2. 打一个带说明的版本标签并推送，说明文字就是 App 里显示的更新内容：
+
+   ```bash
+   git tag -a v0.2.0 -m "· 插入图片
+   · 修复同步偶尔失败"
+   git push origin v0.2.0
+   ```
+
+3. GitHub Actions 会自动测试、用正式密钥签名，并在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布 `git-notebook-0.2.0.apk`。标签和 `appVersion` 不一致时会直接失败。
+
+正式签名密钥保存在仓库的 Secrets（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`）里。**密钥必须一直用同一把**，换了密钥，已安装的 App 就无法更新。
 
 ### 调试构建的本地测试服务器
 

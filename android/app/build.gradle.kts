@@ -1,3 +1,9 @@
+// The only place to bump the version. Release tags must match it (v0.2.0 ↔ "0.2.0"); see .github/workflows/release.yml.
+val appVersion = "0.1.0"
+
+// Set only in the release workflow, from the repository secrets.
+val releaseKeystore: String? = System.getenv("RELEASE_KEYSTORE")
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,8 +19,19 @@ android {
         applicationId = "io.github.leonmason.gitnotebook"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionName = appVersion
+        versionCode = appVersion.split(".").map(String::toInt).let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
+    }
+
+    signingConfigs {
+        releaseKeystore?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,9 +42,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Self-built releases are signed with the local debug key so they install directly.
-            // Store builds should replace this with a real signing config.
-            signingConfig = signingConfigs.getByName("debug")
+            // Published releases use the release key, so each one can update the last. Self-built
+            // releases fall back to the local debug key so they install directly.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
