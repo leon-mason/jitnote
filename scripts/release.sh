@@ -19,7 +19,7 @@ MAJOR=0
 set -euo pipefail
 
 GRADLE_FILE="android/app/build.gradle.kts"
-REPO="leon-mason/git-notebook"
+REPO="leon-mason/jitnote"
 
 die() { echo "✗ $*" >&2; exit 1; }
 

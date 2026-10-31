@@ -5,7 +5,7 @@
 
 ## 目标
 
-在 Mac 上提供和 Android 版操作逻辑一致的 Git 笔记本，原生 Swift / SwiftUI 实现。遵守 [docs/design.md](../../design.md) 的全部产品原则和同步规则：界面不出现 Git 术语、真 Git、没有服务器、不改动用户的东西、从不强推、冲突不丢数据、打开再保存不改变笔记。
+在 Mac 上提供和 Android 版操作逻辑一致的记特，原生 Swift / SwiftUI 实现。遵守 [docs/design.md](../../design.md) 的全部产品原则和同步规则：界面不出现 Git 术语、真 Git、没有服务器、不改动用户的东西、从不强推、冲突不丢数据、打开再保存不改变笔记。
 
 **不做**（这一版）：iOS、Intel Mac、应用商店上架、苹果公证、App 自己替换自己。
 
@@ -42,7 +42,7 @@
 ## 版本和发布
 
 - 和 Android 共用版本号（`android/app/build.gradle.kts` 的 `appVersion`），`scripts/release.sh` 不变。
-- `release.yml` 增加 macOS 任务：在 GitHub 的 Mac 机器上 `brew install libgit2`、运行 `scripts/build-mac.sh`，把 `GitNotebook-mac-apple-silicon-x.y.z.dmg`（给人下载：打开就是拖到「应用程序」的窗口）和 `.zip`（给 0.3.0 的检查更新用，它只认 ZIP）上传到同一个 Release。`ci.yml` 增加 Mac 测试。
+- `release.yml` 增加 macOS 任务：在 GitHub 的 Mac 机器上 `brew install libgit2`、运行 `scripts/build-mac.sh`，把 `Jitnote-mac-apple-silicon-x.y.z.dmg`（给人下载：打开就是拖到「应用程序」的窗口）和 `.zip`（给 0.3.0 的检查更新用，它只认 ZIP）上传到同一个 Release。`ci.yml` 增加 Mac 测试。
 - 检查更新：和 Android 同样的时机和弹窗；优先下载 Release 里的 Mac DMG，下好后「打开安装包」，用户拖到「应用程序」替换（和第一次安装一样）；只有 ZIP 的旧版本则解压后在访达里显示。
 - 没有苹果开发者账号：首次打开需右键「打开」，README 写明。
 

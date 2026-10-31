@@ -115,7 +115,7 @@ class HostingApi {
             conn.requestMethod = method
             conn.connectTimeout = 20_000
             conn.readTimeout = 30_000
-            conn.setRequestProperty("User-Agent", "GitNotebook-Android")
+            conn.setRequestProperty("User-Agent", "Jitnote-Android")
             conn.setRequestProperty("Accept", "application/json")
             when (provider) {
                 Provider.GITHUB -> {

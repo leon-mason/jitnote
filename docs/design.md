@@ -1,6 +1,6 @@
 # 设计说明
 
-本文记录 Git 笔记本的产品原则和关键技术决定，供各个客户端（Android、以后的 iOS / 桌面）共同遵守。
+本文记录记特（Jitnote）的产品原则和关键技术决定，供各个客户端（Android、以后的 iOS / 桌面）共同遵守。
 
 - 日期：2026-10-30
 - 定位：**完全开源、没有服务器**。没有自己的账号体系和服务端数据，App 只和用户自己的 Git 托管平台打交道。
@@ -99,7 +99,7 @@
 
 ## 检查更新
 
-App 不在应用商店上架，新版本发布在本项目的 [GitHub Releases](https://github.com/leon-mason/git-notebook/releases)，App 自己检查和下载。
+App 不在应用商店上架，新版本发布在本项目的 [GitHub Releases](https://github.com/leon-mason/jitnote/releases)，App 自己检查和下载。
 
 - 打开 App 时检查，每天最多一次（成功查过才算），没网或连不上 GitHub 时什么都不提示。首页「⋮ → 检查更新」可以手动查，这时会明确告诉用户结果。
 - 只看最新的正式版本（不看草稿和预发布），版本号按数字逐段比较。

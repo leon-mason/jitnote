@@ -183,16 +183,16 @@ enum AppUpdatesTests {
             {
               "tag_name": "v0.5.0",
               "assets": [
-                {"name": "git-notebook-0.5.0.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"},
-                {"name": "GitNotebook-mac-intel-0.5.0.dmg", "size": 2, "browser_download_url": "https://example.com/intel.dmg"},
-                {"name": "GitNotebook-mac-apple-silicon-0.5.0.zip", "size": 3, "browser_download_url": "https://example.com/arm.zip"},
-                {"name": "GitNotebook-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}
+                {"name": "jitnote-0.5.0.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"},
+                {"name": "Jitnote-mac-intel-0.5.0.dmg", "size": 2, "browser_download_url": "https://example.com/intel.dmg"},
+                {"name": "Jitnote-mac-apple-silicon-0.5.0.zip", "size": 3, "browser_download_url": "https://example.com/arm.zip"},
+                {"name": "Jitnote-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}
               ]
             }
             """)
             try expectEqual(AppUpdates.parseRelease(release, chip: "apple-silicon")!.downloadUrl.absoluteString, "https://example.com/arm.dmg")
             try expectEqual(AppUpdates.parseRelease(release, chip: "intel")!.downloadUrl.absoluteString, "https://example.com/intel.dmg")
-            let armOnly = json(#"{"tag_name": "v0.5.0", "assets": [{"name": "GitNotebook-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}]}"#)
+            let armOnly = json(#"{"tag_name": "v0.5.0", "assets": [{"name": "Jitnote-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}]}"#)
             try expect(AppUpdates.parseRelease(armOnly, chip: "intel") == nil)
         },
 

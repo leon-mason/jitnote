@@ -1,8 +1,12 @@
-# Git Notebook (git-notebook)
+# 记特 Jitnote
 
 [简体中文](README.md) | English
 
-A notes app for your phone that keeps your notes in **your own** private GitHub / Gitee repositories. Fully open source, no server, no data collection.
+Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private GitHub / Gitee repositories, on Android and on the Mac.
+
+- **Your data stays yours**: notes live only in your own repositories and devices; accounts, tokens and content never pass through a third party.
+- **No server**: there is no server of ours, and you don't need one either. Fully open source, no data collection.
+- **Built for working with AI**: notes are plain Markdown files in a real Git repository, so AI tools such as Claude Code or Cursor can organize, rewrite and search them directly; push, tap sync on the phone, and the changes are there.
 
 - **Every notebook is a real Git repository**: the phone keeps a full `.git` with real commit history. Clone it on your computer, edit with any editor or AI tool (Cursor, Claude Code, …), push, and tap sync on the phone to get the changes.
 - **Just one "Sync" button**: notes are saved and versioned automatically. Sync = commit → fetch → merge → push. Never force-pushes.
@@ -25,7 +29,7 @@ Future clients such as iOS will live in this repository too, reuse `editor/`, an
 
 ## Usage (Android)
 
-Requires Android 8.0 or later. Download the latest `git-notebook-x.y.z.apk` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest) and install it.
+Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and install it.
 
 1. Open the app, tap "连接云端账号" (Connect cloud account), follow the on-screen steps to create a token on Gitee or GitHub, and paste it in.
 2. Tap "添加笔记本 → 新建" (Add notebook → New) and give it a name. The app creates a **private** repository in your account.
@@ -52,7 +56,7 @@ When a new version is out, the app offers to update when you open it (it checks 
 
 Requires a Mac with Apple silicon and a recent macOS (currently the same version as the build machine; on an older system macOS says the app can't be opened).
 
-1. Download `GitNotebook-mac-apple-silicon-x.y.z.dmg` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest), open it, and drag "Git 笔记本" onto Applications in the window that appears.
+1. Download `Jitnote-mac-apple-silicon-x.y.z.dmg` from [Releases](https://github.com/leon-mason/jitnote/releases/latest), open it, and drag "记特" onto Applications in the window that appears.
 2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.
 3. Connecting an account and adding notebooks work as on Android. The window has three columns: the notebook switcher and the file list (文件列表), the note list, and the open note. ⌘N creates a note, ⌘R syncs.
 4. When a new version is out, the app offers to download it; click "打开安装包" (Open installer) and drag the new app onto Applications, as when installing, choosing Replace. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
@@ -104,7 +108,7 @@ On `main`, with everything committed and pushed, run:
 scripts/release.sh
 ```
 
-The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK and the Mac app under [Releases](https://github.com/leon-mason/git-notebook/releases).
+The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK and the Mac app under [Releases](https://github.com/leon-mason/jitnote/releases).
 
 - `scripts/release.sh -n` previews the version and commits without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation.
 - **Bumping the major version**: raise `MAJOR` at the top of `scripts/release.sh` (e.g. to `2`) and commit. The next release is `2.0.0`, then `2.1.0`, `2.2.0`, …
@@ -123,5 +127,7 @@ Issues and pull requests are welcome. Before changing the sync logic or the edit
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+Git is a registered trademark of Software Freedom Conservancy. "记特 / Jitnote" only borrows its sound; this project is not affiliated with the Git project.
 
 Main third-party components and their licenses: [JGit](https://www.eclipse.org/jgit/) (EDL 1.0), [Milkdown](https://milkdown.dev/) (MIT), [DOMPurify](https://github.com/cure53/DOMPurify) (Apache 2.0 / MPL 2.0), AndroidX / Jetpack Compose (Apache 2.0).

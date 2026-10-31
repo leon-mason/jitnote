@@ -1,8 +1,12 @@
-# Git 笔记本（git-notebook）
+# 记特 Jitnote
 
 简体中文 | [English](README.en.md)
 
-把笔记放进**你自己的** Gitee / GitHub 私有仓库里的手机笔记 App。完全开源，没有服务器，不收集任何数据。
+「记特」读作 Git：把笔记放进**你自己的** GitHub / Gitee 私有仓库，手机（Android）和 Mac 上都能写。
+
+- **数据主权**：笔记只在你自己的仓库和设备上，账号、令牌、内容都不经过任何第三方。
+- **无需服务器**：没有我们的服务器，也不需要你自己搭；完全开源，不收集任何数据。
+- **AI 协同维护和查询**：笔记是普通的 Markdown 文件、真正的 Git 仓库。Claude Code、Cursor 等 AI 工具可以直接帮你整理、改写、查询，改完推上去，手机点一下同步就能看到。
 
 - **每个笔记本就是一个真正的 Git 仓库**：手机上有完整的 `.git`、真实的提交历史。在电脑上 `git clone` 下来，用任何编辑器或 AI 工具（Cursor、Claude Code……）改完推上去，手机点一下同步就能拿到。
 - **只有一个「同步」按钮**：自动保存、自动记录版本，同步 = 提交 → 拉取 → 合并 → 推送。从不强推。
@@ -25,7 +29,7 @@
 
 ## 使用方法（Android）
 
-支持 Android 8.0 及以上。在 [Releases](https://github.com/leon-mason/git-notebook/releases/latest) 下载最新的 `git-notebook-x.y.z.apk` 安装。
+支持 Android 8.0 及以上。在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载最新的 `jitnote-x.y.z.apk` 安装。
 
 1. 打开 App，点「连接云端账号」，按页面上的步骤在 Gitee（推荐）或 GitHub 生成一个令牌，粘贴进来。
 2. 点「添加笔记本 → 新建」，起个名字。App 会在你的账号里建一个**私有**仓库。
@@ -52,7 +56,7 @@
 
 需要 Apple 芯片的 Mac，以及较新的 macOS（目前和打包用的系统版本一致；系统太旧时会直接提示无法打开）。
 
-1. 在 [Releases](https://github.com/leon-mason/git-notebook/releases/latest) 下载 `GitNotebook-mac-apple-silicon-x.y.z.dmg`，双击打开，在弹出的窗口里把「Git 笔记本」拖到「应用程序」。
+1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-mac-apple-silicon-x.y.z.dmg`，双击打开，在弹出的窗口里把「记特」拖到「应用程序」。
 2. 第一次打开：在「应用程序」里**右键点它 → 打开**，再点「打开」。因为没有苹果开发者签名，直接双击会被系统拦下，只有第一次需要这样做。
 3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分三栏：左边是笔记本切换和「文件列表」，中间是笔记列表，右边是正在写的笔记。⌘N 新建笔记，⌘R 同步。
 4. 有新版本时会提示更新：下载好后点「打开安装包」，和第一次安装一样把新版拖到「应用程序」，选择「替换」即可。更新后第一次同步，系统可能询问是否允许访问钥匙串里的令牌，点「始终允许」。
@@ -104,7 +108,7 @@ npm run build   # 输出到 android/app/src/main/assets/editor/
 scripts/release.sh
 ```
 
-脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、打包 APK 和 Mac 版、在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布完成。
+脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、打包 APK 和 Mac 版、在 [Releases](https://github.com/leon-mason/jitnote/releases) 发布完成。
 
 - `scripts/release.sh -n` 只预览版本号和提交，不做改动；`-m "更新内容"` 直接给出更新内容；`-y` 跳过确认。
 - **升级大版本**：把 `scripts/release.sh` 开头的 `MAJOR` 改大（如 `2`）并提交，下次发版就是 `2.0.0`，之后是 `2.1.0`、`2.2.0`……
@@ -123,5 +127,7 @@ debug 包允许用明文 http 访问模拟器宿主机 `10.0.2.2`（见 `android
 ## 许可证
 
 本项目使用 [Apache License 2.0](LICENSE)。
+
+Git 是 Software Freedom Conservancy 的注册商标；「记特 / Jitnote」只是取了它的读音，本项目与 Git 项目没有关联。
 
 用到的主要第三方组件及其许可证：[JGit](https://www.eclipse.org/jgit/)（EDL 1.0）、[Milkdown](https://milkdown.dev/)（MIT）、[DOMPurify](https://github.com/cure53/DOMPurify)（Apache 2.0 / MPL 2.0）、AndroidX / Jetpack Compose（Apache 2.0）。

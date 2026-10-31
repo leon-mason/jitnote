@@ -82,7 +82,7 @@ fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Git 笔记本", fontWeight = FontWeight.SemiBold) },
+                title = { Text("记特", fontWeight = FontWeight.SemiBold) },
                 actions = { AppMenu(updates, nav) },
             )
         },

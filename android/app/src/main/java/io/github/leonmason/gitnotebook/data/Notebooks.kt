@@ -124,7 +124,7 @@ class Notebooks(
                 put("id", notebook.id)
                 put("display_name", name)
                 put("created_at", Instant.now().toString())
-                put("app_version", "GitNotebook Android ${BuildConfig.VERSION_NAME}")
+                put("app_version", "Jitnote Android ${BuildConfig.VERSION_NAME}")
             }.toString() + "\n",
         )
         withLock(notebook) { git(notebook).commitAll(author(account), device, "新建笔记本：$name") }

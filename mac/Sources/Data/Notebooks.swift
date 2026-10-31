@@ -101,7 +101,7 @@ final class Notebooks: ObservableObject {
             "id": notebook.id,
             "display_name": name,
             "created_at": ISO8601DateFormatter().string(from: Date()),
-            "app_version": "GitNotebook Mac \(appVersion)",
+            "app_version": "Jitnote Mac \(appVersion)",
         ]
         try (JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]) + Data("\n".utf8)).write(to: meta)
         let author = author(account), device = device

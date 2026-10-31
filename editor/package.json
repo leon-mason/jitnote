@@ -2,7 +2,7 @@
   "name": "gitnotebook-editor",
   "private": true,
   "version": "0.1.0",
-  "description": "WYSIWYG note editor shared by all GitNotebook clients. Reads and writes plain Markdown.",
+  "description": "WYSIWYG note editor shared by all Jitnote clients. Reads and writes plain Markdown.",
   "type": "module",
   "scripts": {
     "dev": "vite",

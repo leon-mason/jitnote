@@ -173,7 +173,7 @@ fun AddAccountScreen(notebooks: Notebooks, nav: Navigator) {
                             Step(2, "Expiration（有效期）建议选 No expiration（不过期），拉到页面底部点 Generate token。")
                             Step(3, "复制以 ghp_ 开头的那串字符，粘贴到下面。")
                             FilledTonalButton(onClick = {
-                                uri.openUri("https://github.com/settings/tokens/new?scopes=repo&description=GitNotebook")
+                                uri.openUri("https://github.com/settings/tokens/new?scopes=repo&description=Jitnote")
                             }) { Text("打开 GitHub 生成页面") }
                         }
                         Provider.OTHER -> {

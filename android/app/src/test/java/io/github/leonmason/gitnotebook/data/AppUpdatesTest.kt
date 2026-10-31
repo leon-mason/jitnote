@@ -32,15 +32,15 @@ class AppUpdatesTest {
               "body": "· 插入图片\r\n· 修复同步偶尔失败\r\n",
               "assets": [
                 {"name": "checksums.txt", "size": 120, "browser_download_url": "https://example.com/checksums.txt"},
-                {"name": "git-notebook-0.2.0.apk", "size": 12582912,
-                 "browser_download_url": "https://github.com/leon-mason/git-notebook/releases/download/v0.2.0/git-notebook-0.2.0.apk"}
+                {"name": "jitnote-0.2.0.apk", "size": 12582912,
+                 "browser_download_url": "https://github.com/leon-mason/jitnote/releases/download/v0.2.0/jitnote-0.2.0.apk"}
               ]
             }
             """,
         )!!
         assertEquals("0.2.0", release.version)
         assertEquals("· 插入图片\n· 修复同步偶尔失败", release.notes)
-        assertEquals("https://github.com/leon-mason/git-notebook/releases/download/v0.2.0/git-notebook-0.2.0.apk", release.apkUrl)
+        assertEquals("https://github.com/leon-mason/jitnote/releases/download/v0.2.0/jitnote-0.2.0.apk", release.apkUrl)
         assertEquals(12582912L, release.apkSize)
     }
 

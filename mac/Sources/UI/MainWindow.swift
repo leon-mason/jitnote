@@ -39,7 +39,7 @@ struct Welcome: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Image(systemName: "book.closed").font(.system(size: 48)).foregroundStyle(.tint)
-            Text("欢迎使用 Git 笔记本").font(.largeTitle.weight(.semibold))
+            Text("欢迎使用记特").font(.largeTitle.weight(.semibold))
             Text("你的笔记会保存在你自己的 Gitee 或 GitHub 账号里，只有你自己能看到。换电脑、在手机上打开都不会丢。\n\n这个 App 没有服务器，不会收集你的任何数据。")
                 .font(.title3)
                 .foregroundStyle(.secondary)

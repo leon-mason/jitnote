@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
-    <!-- Must match the bundle's file name, or Finder ignores the localized "Git 笔记本" in *.lproj/InfoPlist.strings. -->
+    <!-- Must match the bundle's file name, or Finder ignores the localized "记特" in *.lproj/InfoPlist.strings. -->
     <key>CFBundleDisplayName</key>
     <string>GitNotebook</string>
     <key>CFBundleExecutable</key>
@@ -16,7 +16,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Git 笔记本</string>
+    <string>记特</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

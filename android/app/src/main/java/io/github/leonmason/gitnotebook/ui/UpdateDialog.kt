@@ -152,7 +152,7 @@ private fun InstallDialog(state: State.Downloaded, onDismiss: () -> Unit) {
             title = { Text("还差一步") },
             text = {
                 Text(
-                    "新版本已经下载好。安卓系统要求先允许「Git 笔记本」安装应用，才能更新自己。\n\n" +
+                    "新版本已经下载好。安卓系统要求先允许「记特」安装应用，才能更新自己。\n\n" +
                         "点「去允许」，打开开关后返回这里就会开始安装。每台手机只需要允许一次。",
                 )
             },

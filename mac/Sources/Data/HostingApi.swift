@@ -90,7 +90,7 @@ enum HostingApi {
     private static func request(_ provider: Provider, token: String, method: String, url: String, body: [String: Any]? = nil) async throws -> Any {
         var request = URLRequest(url: URL(string: url)!, timeoutInterval: 30)
         request.httpMethod = method
-        request.setValue("GitNotebook-Mac", forHTTPHeaderField: "User-Agent")
+        request.setValue("Jitnote-Mac", forHTTPHeaderField: "User-Agent")
         if provider == .github {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")

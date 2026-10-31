@@ -608,7 +608,7 @@ final class NotebookGit: @unchecked Sendable {
 
     private static func remoteRef(_ branch: String) -> String { "refs/remotes/\(remoteName)/\(branch)" }
 
-    static func commitMessage(_ summary: String, device: String) -> String { "\(summary)\n\n来自 GitNotebook · \(device)" }
+    static func commitMessage(_ summary: String, device: String) -> String { "\(summary)\n\n来自 记特 · \(device)" }
 
     /// Human-readable commit summary such as "编辑：读书笔记".
     static func describeChanges(added: [String], changed: [String], removed: [String]) -> String? {

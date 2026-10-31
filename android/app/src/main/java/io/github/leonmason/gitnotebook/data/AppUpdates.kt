@@ -106,7 +106,7 @@ class AppUpdates(
         try {
             conn.connectTimeout = 20_000
             conn.readTimeout = 30_000
-            conn.setRequestProperty("User-Agent", "GitNotebook-Android")
+            conn.setRequestProperty("User-Agent", "Jitnote-Android")
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             val code = conn.responseCode
@@ -126,14 +126,14 @@ class AppUpdates(
         val dir = File(cacheDir, "updates")
         dir.deleteRecursively()
         dir.mkdirs()
-        val apk = File(dir, "git-notebook-${release.version}.apk")
+        val apk = File(dir, "jitnote-${release.version}.apk")
         val part = File(dir, apk.name + ".part")
         // GitHub redirects the download to its file host; HttpURLConnection follows https → https.
         val conn = URL(release.apkUrl).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 20_000
             conn.readTimeout = 60_000
-            conn.setRequestProperty("User-Agent", "GitNotebook-Android")
+            conn.setRequestProperty("User-Agent", "Jitnote-Android")
             if (conn.responseCode !in 200..299) throw IOException("Download returned ${conn.responseCode}")
             conn.inputStream.use { input ->
                 part.outputStream().use { output ->
@@ -168,7 +168,7 @@ class AppUpdates(
     }
 
     companion object {
-        const val REPO = "leon-mason/git-notebook"
+        const val REPO = "leon-mason/jitnote"
         private const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
         /** Reads a GitHub release; null when it has no APK or is a draft or pre-release. */

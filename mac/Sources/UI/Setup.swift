@@ -200,7 +200,7 @@ struct AddAccountView: View {
                     case .github:
                         Text("GitHub 在国内有时连接不稳定。").fontWeight(.medium)
                         Text("1. 点下面的按钮，登录 GitHub 后会打开生成令牌的页面（已帮你勾好需要的权限）。")
-                        Button("打开 GitHub 生成页面") { open("https://github.com/settings/tokens/new?scopes=repo&description=GitNotebook") }
+                        Button("打开 GitHub 生成页面") { open("https://github.com/settings/tokens/new?scopes=repo&description=Jitnote") }
                         Text("2. Expiration（有效期）建议选 No expiration（不过期），拉到页面底部点 Generate token。")
                         Text("3. 复制以 ghp_ 开头的那串字符，粘贴到下面。")
                     case .other:
@@ -484,7 +484,7 @@ struct AboutView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "book.closed").font(.system(size: 44)).foregroundStyle(.tint)
-            Text("Git 笔记本").font(.title2.weight(.semibold))
+            Text("记特").font(.title2.weight(.semibold))
             Text("当前版本 \(updates.currentVersion)").foregroundStyle(.secondary)
             Button("检查更新") { updates.checkNow() }
             Link("项目主页", destination: URL(string: "https://github.com/\(AppUpdates.repo)")!)

@@ -165,7 +165,7 @@ fun Welcome(modifier: Modifier, onStart: () -> Unit) {
             modifier = Modifier.size(56.dp),
         )
         Spacer(Modifier.size(16.dp))
-        Text("欢迎使用 Git 笔记本", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Text("欢迎使用记特", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.size(12.dp))
         Text(
             "你的笔记会保存在你自己的 Gitee 或 GitHub 账号里，只有你自己能看到。" +

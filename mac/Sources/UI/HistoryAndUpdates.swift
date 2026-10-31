@@ -256,8 +256,8 @@ private struct UpdateSheet: View {
             case .downloaded(let release, let file):
                 Text("新版本 \(release.version) 已下载好").font(.headline)
                 Text(release.isDiskImage
-                    ? "还差一步：点「打开安装包」，在弹出的窗口里把「Git 笔记本」拖到「应用程序」，选择「替换」，然后重新打开 App。"
-                    : "还差一步：在打开的访达窗口里，把「Git 笔记本」拖到「应用程序」文件夹，选择「替换」，然后重新打开 App。")
+                    ? "还差一步：点「打开安装包」，在弹出的窗口里把「记特」拖到「应用程序」，选择「替换」，然后重新打开 App。"
+                    : "还差一步：在打开的访达窗口里，把「记特」拖到「应用程序」文件夹，选择「替换」，然后重新打开 App。")
                     .fixedSize(horizontal: false, vertical: true)
                 buttons {
                     Button("以后再说") { updates.dismiss() }.keyboardShortcut(.cancelAction)

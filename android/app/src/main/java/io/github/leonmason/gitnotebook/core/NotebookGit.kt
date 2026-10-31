@@ -391,7 +391,7 @@ class NotebookGit(val workTree: File) {
                 TreeWalk.forPath(repo, path, tree)?.use { repo.open(it.getObjectId(0)).bytes }
             }
 
-        internal fun commitMessage(summary: String, device: String) = "$summary\n\n来自 GitNotebook · $device"
+        internal fun commitMessage(summary: String, device: String) = "$summary\n\n来自 记特 · $device"
 
         /** Human-readable commit summary such as "编辑：读书笔记". */
         internal fun describeChanges(added: Set<String>, changed: Set<String>, removed: Set<String>): String? {

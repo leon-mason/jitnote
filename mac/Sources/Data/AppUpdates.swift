@@ -27,7 +27,7 @@ final class AppUpdates: ObservableObject {
         case failed(String, release: Release?)
     }
 
-    static let repo = "leon-mason/git-notebook"
+    static let repo = "leon-mason/jitnote"
     private static let checkInterval: Int64 = 24 * 60 * 60 * 1000
 
     let currentVersion: String
@@ -97,7 +97,7 @@ final class AppUpdates: ObservableObject {
     /// The newest public release if it is newer than this app, else nil.
     private func latestRelease() async throws -> Release? {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!, timeoutInterval: 30)
-        request.setValue("GitNotebook-Mac", forHTTPHeaderField: "User-Agent")
+        request.setValue("Jitnote-Mac", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -153,7 +153,7 @@ final class AppUpdates: ObservableObject {
         return app
     }
 
-    /// The chip in Mac package names: GitNotebook-mac-apple-silicon-0.4.0.dmg (an Intel build would say "intel").
+    /// The chip in Mac package names: Jitnote-mac-apple-silicon-0.4.0.dmg (an Intel build would say "intel").
     nonisolated static var chip: String {
         #if arch(arm64)
         "apple-silicon"

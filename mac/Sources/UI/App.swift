@@ -56,7 +56,7 @@ struct GitNotebookApp: App {
     @StateObject private var updates = AppModel.shared.updates
 
     var body: some Scene {
-        Window("Git 笔记本", id: "main") {
+        Window("记特", id: "main") {
             MainView()
                 .environmentObject(notebooks)
                 .environmentObject(updates)
