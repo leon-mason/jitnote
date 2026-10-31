@@ -74,16 +74,17 @@ npm run build   # 输出到 android/app/src/main/assets/editor/
 
 ### 发布新版本
 
-1. 改 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion`（如 `0.2.0`），提交并推送。
-2. 打一个带说明的版本标签并推送，说明文字就是 App 里显示的更新内容：
+在 `main` 分支上，所有改动都提交并推送后运行：
 
-   ```bash
-   git tag -a v0.2.0 -m "· 插入图片
-   · 修复同步偶尔失败"
-   git push origin v0.2.0
-   ```
+```bash
+scripts/release.sh
+```
 
-3. GitHub Actions 会自动测试、用正式密钥签名，并在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布 `git-notebook-0.2.0.apk`。标签和 `appVersion` 不一致时会直接失败。
+脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、在 [Releases](https://github.com/leon-mason/git-notebook/releases) 发布完成。
+
+- `scripts/release.sh -n` 只预览版本号和提交，不做改动；`-m "更新内容"` 直接给出更新内容；`-y` 跳过确认。
+- **升级大版本**：把 `scripts/release.sh` 开头的 `MAJOR` 改大（如 `2`）并提交，下次发版就是 `2.0.0`，之后是 `2.1.0`、`2.2.0`……
+- 脚本会拒绝这些情况：不在 `main`、有没提交的改动、和 GitHub 不一致、上次发版后没有新提交、改了 `editor/` 却没重新 `npm run build`。
 
 正式签名密钥保存在仓库的 Secrets（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`）里。**密钥必须一直用同一把**，换了密钥，已安装的 App 就无法更新。
 

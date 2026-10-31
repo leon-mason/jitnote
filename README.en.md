@@ -74,16 +74,17 @@ npm run build   # outputs to android/app/src/main/assets/editor/
 
 ### Publishing a new version
 
-1. Bump `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0`), then commit and push.
-2. Create and push an annotated version tag. Its message is what the app shows as the update notes:
+On `main`, with everything committed and pushed, run:
 
-   ```bash
-   git tag -a v0.2.0 -m "· 插入图片
-   · 修复同步偶尔失败"
-   git push origin v0.2.0
-   ```
+```bash
+scripts/release.sh
+```
 
-3. GitHub Actions runs the tests, signs the APK with the release key, and publishes `git-notebook-0.2.0.apk` under [Releases](https://github.com/leon-mason/git-notebook/releases). It fails if the tag doesn't match `appVersion`.
+The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK under [Releases](https://github.com/leon-mason/git-notebook/releases).
+
+- `scripts/release.sh -n` previews the version and commits without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation.
+- **Bumping the major version**: raise `MAJOR` at the top of `scripts/release.sh` (e.g. to `2`) and commit. The next release is `2.0.0`, then `2.1.0`, `2.2.0`, …
+- The script refuses to release when not on `main`, with uncommitted changes, when out of sync with GitHub, with no commits since the last release, or when `editor/` changed without a fresh `npm run build`.
 
 The release signing key is kept in the repository secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`). **Always sign with the same key**: an APK signed with a different key can't update an installed app.
 

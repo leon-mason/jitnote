@@ -1,4 +1,4 @@
-// The only place to bump the version. Release tags must match it (v0.2.0 ↔ "0.2.0"); see .github/workflows/release.yml.
+// Bumped by scripts/release.sh. Release tags must match it (v0.2.0 ↔ "0.2.0"); see .github/workflows/release.yml.
 val appVersion = "0.2.0"
 
 // Set only in the release workflow, from the repository secrets.
