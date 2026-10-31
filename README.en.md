@@ -10,7 +10,7 @@ A notes app for your phone that keeps your notes in **your own** private GitHub 
 - **WYSIWYG**: you see an ordinary note (headings, bold, lists, to-dos, tables). What's saved is standard Markdown that Obsidian / Typora can open directly.
 - **Works with existing repositories**: use your Obsidian or Typora notes repository as-is. Existing files and image references are left untouched.
 
-> **Status**: early version (0.1.0). Only the Android client exists so far, and the UI is Chinese only. There are no prebuilt packages yet, so you need to build it yourself (see [Development](#development)). Feedback is welcome; please keep a backup of important notes on your computer.
+> **Status**: early version. Only the Android client exists so far, and the UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
 
 ## Repository layout
 
@@ -24,9 +24,9 @@ Future iOS and desktop clients will live in this repository too, reuse `editor/`
 
 ## Usage (Android)
 
-Requires Android 8.0 or later.
+Requires Android 8.0 or later. Download the latest `git-notebook-x.y.z.apk` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest) and install it.
 
-1. Install the app, tap "连接云端账号" (Connect cloud account), follow the on-screen steps to create a token on Gitee or GitHub, and paste it in.
+1. Open the app, tap "连接云端账号" (Connect cloud account), follow the on-screen steps to create a token on Gitee or GitHub, and paste it in.
 2. Tap "添加笔记本 → 新建" (Add notebook → New) and give it a name. The app creates a **private** repository in your account.
 3. Write notes. They're saved automatically when you leave a note; tap the sync button in the top-right corner to upload them.
 4. Already have a notes repository (e.g. from Obsidian)? Pick it under "添加笔记本 → 用已有的" (Add notebook → Use existing). Existing files are kept as they are.

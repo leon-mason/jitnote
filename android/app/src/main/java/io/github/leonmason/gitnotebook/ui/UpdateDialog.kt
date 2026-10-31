@@ -62,7 +62,10 @@ fun UpdateDialog(updates: AppUpdates) {
             onDismissRequest = updates::dismiss,
             title = { Text("有新版本 ${s.release.version}") },
             text = {
-                Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                Column(
+                    Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     if (s.release.notes.isNotEmpty()) Text(s.release.notes)
                     if (s.release.apkSize > 0) {
                         Text(
