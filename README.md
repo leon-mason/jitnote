@@ -1,8 +1,8 @@
 # Git 笔记本（git-notebook）
 
-把笔记放进**你自己的** Gitee / GitHub 私有仓库里的手机笔记 App。完全开源，没有服务器，不收集任何数据。
+简体中文 | [English](README.en.md)
 
-> An open-source Android notes app that stores every notebook as a real Git repository in your own GitHub / Gitee account. No server, no tracking. The UI is currently Chinese only.
+把笔记放进**你自己的** Gitee / GitHub 私有仓库里的手机笔记 App。完全开源，没有服务器，不收集任何数据。
 
 - **每个笔记本就是一个真正的 Git 仓库**：手机上有完整的 `.git`、真实的提交历史。在电脑上 `git clone` 下来，用任何编辑器或 AI 工具（Cursor、Claude Code……）改完推上去，手机点一下同步就能拿到。
 - **只有一个「同步」按钮**：自动保存、自动记录版本，同步 = 提交 → 拉取 → 合并 → 推送。从不强推。
