@@ -173,6 +173,14 @@ class Notebooks(
 
     fun rename(notebook: Notebook, name: String) = updateNotebook(notebook.id) { it.copy(name = name) }
 
+    /** The notebook the home screen shows; falls back to the first when the chosen one is gone. */
+    fun current(state: AppState): Notebook? =
+        state.notebooks.firstOrNull { it.id == state.currentNotebookId } ?: state.notebooks.firstOrNull()
+
+    fun setCurrent(notebookId: String) = store.update { it.copy(currentNotebookId = notebookId) }
+
+    fun setSort(sort: NoteSort) = store.update { it.copy(noteSort = sort) }
+
     /** Removes the notebook from this device only. The cloud repository is left alone. */
     suspend fun deleteLocal(notebook: Notebook) = withContext(Dispatchers.IO) {
         withLock(notebook) { dir(notebook).deleteRecursively() }

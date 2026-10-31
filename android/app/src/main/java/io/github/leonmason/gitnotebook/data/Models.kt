@@ -43,6 +43,9 @@ data class Notebook(
 data class AppState(
     val accounts: List<Account> = emptyList(),
     val notebooks: List<Notebook> = emptyList(),
+    /** The notebook the home screen shows; the first one when unset or removed. */
+    val currentNotebookId: String? = null,
+    val noteSort: NoteSort = NoteSort.MODIFIED_DESC,
     /** Last successful check for a new app version, see [AppUpdates]. */
     val lastUpdateCheckAt: Long? = null,
 )

@@ -32,6 +32,8 @@ Requires Android 8.0 or later. Download the latest `git-notebook-x.y.z.apk` from
 4. Already have a notes repository (e.g. from Obsidian)? Pick it under "添加笔记本 → 用已有的" (Add notebook → Use existing). Existing files are kept as they are.
 5. New or second phone: connect the same account, then pick your notebooks under "用已有的" (Use existing).
 
+The home screen lists **every note** in the current notebook (no folders), sorted by modified time or title. Swipe right anywhere on the screen, or tap ☰ in the top-left corner, to open the folder tree; tap a folder to see only its notes. Tap the notebook name at the top to switch notebooks or open "管理笔记本" (Manage notebooks).
+
 Deleting a notebook only removes the copy on the phone; the repository in the cloud is not affected.
 
 When a new version is out, the app offers to update when you open it (it checks at most once a day). You can also check by hand from the home screen's "⋮ → 检查更新" (Check for updates).

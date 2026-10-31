@@ -56,7 +56,8 @@ fun NewNotebookScreen(notebooks: Notebooks, nav: Navigator) {
         scope.launch {
             try {
                 val id = action { busy = it }
-                nav.replace(Screen.Folder(id))
+                notebooks.setCurrent(id)
+                nav.popUntil { it == Screen.Home }
             } catch (e: Exception) {
                 error = e.message ?: "出错了，请重试"
             } finally {

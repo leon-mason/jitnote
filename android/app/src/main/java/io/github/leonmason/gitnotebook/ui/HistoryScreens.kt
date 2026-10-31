@@ -115,7 +115,7 @@ fun VersionPreviewScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Ve
             confirming = false
             scope.launch {
                 notebooks.restore(notebook, screen.path, screen.version.commit)
-                nav.popUntil { it is Screen.Editor || it is Screen.Folder }
+                nav.popUntil { it is Screen.Editor || it == Screen.Home }
             }
         }
     }
