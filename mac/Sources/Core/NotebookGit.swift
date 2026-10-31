@@ -144,7 +144,7 @@ final class NotebookGit {
         options.prune = GIT_FETCH_PRUNE
         context.install(&options.callbacks)
         try withExtendedLifetime(context) {
-            try Git2.check(git_remote_fetch(remote, nil, &options, nil))
+            _ = try Git2.check(git_remote_fetch(remote, nil, &options, nil))
         }
     }
 
@@ -487,7 +487,7 @@ final class NotebookGit {
         defer { git_signature_free(signature) }
         var out = git_oid()
         try parentCommits.withUnsafeMutableBufferPointer { buffer in
-            try Git2.check(git_commit_create(&out, repo, "HEAD", signature, signature, nil, message, tree, buffer.count, buffer.baseAddress))
+            _ = try Git2.check(git_commit_create(&out, repo, "HEAD", signature, signature, nil, message, tree, buffer.count, buffer.baseAddress))
         }
     }
 
@@ -576,7 +576,7 @@ final class NotebookGit {
             context.install(&options.fetch_opts.callbacks)
             var repo: OpaquePointer?
             try withExtendedLifetime(context) {
-                try Git2.check(git_clone(&repo, url, dir.path, &options))
+                _ = try Git2.check(git_clone(&repo, url, dir.path, &options))
             }
             defer { git_repository_free(repo) }
             try prepare(repo!)
