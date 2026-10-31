@@ -132,11 +132,14 @@ class Notebooks(
         notebook
     }
 
-    suspend fun listRemote(account: Account): List<HostingApi.RemoteRepo> = withContext(Dispatchers.IO) {
-        val local = state.value.notebooks.map { it.remoteUrl.removeSuffix(".git").lowercase() }.toSet()
+    /** Repositories in [account], each marked with whether it is already a notebook on this phone. */
+    suspend fun listRemote(account: Account): List<Pair<HostingApi.RemoteRepo, Boolean>> = withContext(Dispatchers.IO) {
+        val local = state.value.notebooks.map { sameRepoKey(it.remoteUrl) }.toSet()
         api.listRepos(account.provider, vault.decrypt(account.encryptedToken))
-            .filterNot { it.cloneUrl.removeSuffix(".git").lowercase() in local }
+            .map { it to (sameRepoKey(it.cloneUrl) in local) }
     }
+
+    private fun sameRepoKey(url: String) = url.trim().removeSuffix("/").removeSuffix(".git").lowercase()
 
     /** Downloads an existing repository as a notebook. */
     suspend fun import(url: String, account: Account, name: String, onProgress: (String) -> Unit): Notebook =

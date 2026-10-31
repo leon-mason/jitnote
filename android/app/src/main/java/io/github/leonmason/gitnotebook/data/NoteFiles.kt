@@ -19,7 +19,14 @@ object NoteFiles {
         (dir.listFiles() ?: emptyArray())
             .filterNot { it.name.startsWith(".") }
             .map { Entry(it, it.isDirectory, it.lastModified()) }
-            .sortedWith(compareBy<Entry> { !it.isDirectory }.thenBy { if (it.isDirectory) it.name.lowercase() else "" }.thenByDescending { it.modified })
+            .sortedWith(
+                compareBy<Entry> { !it.isDirectory }
+                    .thenBy { if (it.isDirectory) it.name.lowercase() else "" }
+                    // Minutes, not milliseconds: a fresh download writes every file at about the
+                    // same moment, and those should simply be listed by name.
+                    .thenByDescending { it.modified / 60_000 }
+                    .thenBy { it.name.lowercase() },
+            )
 
     fun isEditable(file: File): Boolean {
         val ext = file.extension.lowercase()

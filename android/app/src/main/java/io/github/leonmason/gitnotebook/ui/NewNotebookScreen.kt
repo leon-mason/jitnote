@@ -14,16 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Book
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -33,7 +26,6 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +37,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.leonmason.gitnotebook.data.Account
-import io.github.leonmason.gitnotebook.data.HostingApi
 import io.github.leonmason.gitnotebook.data.Notebooks
 import io.github.leonmason.gitnotebook.data.RepoNames
 import kotlinx.coroutines.launch
@@ -78,7 +69,7 @@ fun NewNotebookScreen(notebooks: Notebooks, nav: Navigator) {
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { if (busy == null) tab = 0 }, text = { Text("新建") })
-                Tab(selected = tab == 1, onClick = { if (busy == null) tab = 1 }, text = { Text("下载已有的") })
+                Tab(selected = tab == 1, onClick = { if (busy == null) tab = 1 }, text = { Text("用已有的") })
             }
             // Forms stay composed under the progress overlay, so input survives an error.
             Box(Modifier.fillMaxSize()) {
@@ -87,7 +78,7 @@ fun NewNotebookScreen(notebooks: Notebooks, nav: Navigator) {
                         run { progress -> notebooks.create(name, account, path, progress).id }
                     }
                 } else {
-                    DownloadForm(notebooks, state.accounts, error) { url, account, name ->
+                    ExistingNotebookForm(notebooks, state.accounts, error) { url, account, name ->
                         run { progress -> notebooks.import(url, account, name, progress).id }
                     }
                 }
@@ -120,7 +111,7 @@ private fun CreateForm(accounts: List<Account>, error: String?, onCreate: (Strin
     val path = customPath ?: autoPath
 
     if (accounts.isEmpty()) {
-        EmptyState("这个账号不能新建", "「其他」类型的账号只能下载已有的笔记本。请连接 Gitee 或 GitHub 账号后再新建。")
+        EmptyState("这个账号不能新建", "「其他」类型的账号只能用已有的仓库，请切到「用已有的」。想新建的话，请先连接 Gitee 或 GitHub 账号。")
         return
     }
     Column(
@@ -167,108 +158,7 @@ private fun CreateForm(accounts: List<Account>, error: String?, onCreate: (Strin
 }
 
 @Composable
-private fun DownloadForm(
-    notebooks: Notebooks,
-    accounts: List<Account>,
-    error: String?,
-    onDownload: (String, Account, String) -> Unit,
-) {
-    var account by remember { mutableStateOf(accounts.firstOrNull()) }
-    var repos by remember { mutableStateOf<List<HostingApi.RemoteRepo>?>(null) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var showAll by remember { mutableStateOf(false) }
-    var byUrl by remember { mutableStateOf(account?.provider?.canCreateRepos == false) }
-    var url by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-
-    val selected = account
-    LaunchedEffect(selected) {
-        repos = null
-        loadError = null
-        if (selected == null || !selected.provider.canCreateRepos) return@LaunchedEffect
-        try {
-            repos = notebooks.listRemote(selected)
-        } catch (e: Exception) {
-            loadError = e.message ?: "读取失败"
-        }
-    }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-        if (accounts.size > 1) {
-            Column(Modifier.padding(horizontal = 16.dp)) { AccountPicker(accounts, account) { account = it } }
-        }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
-
-        if (!byUrl && selected != null && selected.provider.canCreateRepos) {
-            val list = repos
-            when {
-                loadError != null -> Text("读取笔记本列表失败：$loadError", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
-                list == null -> Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.size(12.dp))
-                    Text("正在读取你账号里的笔记本…")
-                }
-                else -> {
-                    val shown = if (showAll) list else list.filter { it.isNotebook }
-                    Text(
-                        if (shown.isEmpty()) "账号里没有找到用这个 App 建的笔记本。" else "点一下就能下载到这台手机：",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                    shown.forEach { repo ->
-                        ListItem(
-                            leadingContent = {
-                                Icon(if (repo.isNotebook) Icons.Outlined.Book else Icons.Outlined.FolderOpen, contentDescription = null)
-                            },
-                            headlineContent = { Text(repo.displayName) },
-                            supportingContent = { if (repo.displayName != repo.path) Text(repo.path) },
-                            modifier = Modifier.clickable { onDownload(repo.cloneUrl, selected, repo.displayName) },
-                        )
-                        HorizontalDivider()
-                    }
-                    if (!showAll && list.any { !it.isNotebook }) {
-                        TextButton(onClick = { showAll = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                            Text("显示账号里的其他仓库")
-                        }
-                    }
-                }
-            }
-            TextButton(onClick = { byUrl = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("我有网址，手动填写") }
-            return@Column
-        }
-
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = { Text("网址") },
-                placeholder = { Text("https://gitee.com/你的用户名/笔记.git") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("笔记本名称（可不填）") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                enabled = url.trim().startsWith("http") && selected != null,
-                onClick = { onDownload(url.trim(), selected!!, name.trim()) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("下载") }
-            if (selected?.provider?.canCreateRepos == true) {
-                OutlinedButton(onClick = { byUrl = false }, modifier = Modifier.fillMaxWidth()) { Text("从账号里选") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AccountPicker(accounts: List<Account>, selected: Account?, onSelect: (Account) -> Unit) {
+internal fun AccountPicker(accounts: List<Account>, selected: Account?, onSelect: (Account) -> Unit) {
     Column {
         accounts.forEach { account ->
             Row(

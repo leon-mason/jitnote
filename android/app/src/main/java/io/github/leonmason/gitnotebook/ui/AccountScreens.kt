@@ -237,6 +237,8 @@ fun AddAccountScreen(notebooks: Notebooks, nav: Navigator) {
                         try {
                             notebooks.addAccount(provider, token, username, email)
                             nav.pop()
+                            // First account and nothing yet: go straight on to adding a notebook.
+                            if (notebooks.state.value.notebooks.isEmpty()) nav.push(Screen.NewNotebook)
                         } catch (e: Exception) {
                             error = "连接失败：${e.message ?: "请检查令牌是否复制完整"}"
                         } finally {

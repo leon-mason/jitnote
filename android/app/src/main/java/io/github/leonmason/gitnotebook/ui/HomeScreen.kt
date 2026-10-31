@@ -85,7 +85,7 @@ fun HomeScreen(notebooks: Notebooks, nav: Navigator) {
                 ExtendedFloatingActionButton(
                     onClick = { nav.push(Screen.NewNotebook) },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("新建笔记本") },
+                    text = { Text("添加笔记本") },
                 )
             }
         },
@@ -95,7 +95,7 @@ fun HomeScreen(notebooks: Notebooks, nav: Navigator) {
             state.accounts.isEmpty() -> Welcome(Modifier.padding(padding)) { nav.push(Screen.AddAccount) }
             state.notebooks.isEmpty() -> EmptyState(
                 title = "还没有笔记本",
-                body = "笔记本就像一个文件夹，里面可以放很多篇笔记。\n点右下角「新建笔记本」开始吧。",
+                body = "笔记本就像一个文件夹，里面可以放很多篇笔记。\n点右下角「添加笔记本」，新建一个，或者用账号里已有的。",
                 modifier = Modifier.padding(padding),
             )
             else -> LazyColumn(

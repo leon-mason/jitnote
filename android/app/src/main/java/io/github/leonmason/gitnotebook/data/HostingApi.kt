@@ -1,6 +1,7 @@
 package io.github.leonmason.gitnotebook.data
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.put
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.OffsetDateTime
 
 /**
  * The few platform REST calls the app needs: who owns this token, and create a private
@@ -21,8 +23,19 @@ class HostingApi {
     data class User(val login: String, val email: String)
     data class CreatedRepo(val cloneUrl: String, val webUrl: String)
 
-    /** A repository in the user's account; [displayName] comes from the "[GitNotebook] name" description. */
-    data class RemoteRepo(val path: String, val displayName: String, val cloneUrl: String, val isNotebook: Boolean)
+    /** A repository the account can access, as shown when choosing one to turn into a notebook. */
+    data class RemoteRepo(
+        val path: String,
+        /** From the "[GitNotebook] name" description when this app created it, else the repository name. */
+        val displayName: String,
+        val cloneUrl: String,
+        val isNotebook: Boolean,
+        val isPrivate: Boolean,
+        /** Login of the user or organization that owns it. */
+        val owner: String,
+        val updatedAt: Long?,
+        val sizeKb: Long?,
+    )
 
     open class ApiException(message: String) : IOException(message)
     class NameTakenException : ApiException("仓库名已被占用")
@@ -42,26 +55,21 @@ class HostingApi {
         return User(login, email)
     }
 
-    /** The user's repositories, notebooks created by this app first. */
+    /** Repositories the account owns or collaborates on: this app's notebooks first, then most recently updated. */
     fun listRepos(provider: Provider, token: String): List<RemoteRepo> {
-        val url = when (provider) {
-            Provider.GITHUB -> "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner"
-            Provider.GITEE -> "https://gitee.com/api/v5/user/repos?per_page=100&sort=updated&type=owner"
+        val base = when (provider) {
+            Provider.GITHUB -> "https://api.github.com/user/repos?sort=updated&affiliation=owner,collaborator,organization_member"
+            Provider.GITEE -> "https://gitee.com/api/v5/user/repos?sort=updated&type=all"
             Provider.OTHER -> error("No API for other hosts")
         }
-        return requestElement(provider, token, "GET", url).jsonArray.mapNotNull { element ->
-            val repo = element as? JsonObject ?: return@mapNotNull null
-            val web = repo.string("html_url")?.removeSuffix(".git") ?: return@mapNotNull null
-            val path = repo.string("path") ?: repo.string("name") ?: web.substringAfterLast('/')
-            val description = repo.string("description").orEmpty()
-            val marked = description.startsWith(NOTEBOOK_MARK)
-            RemoteRepo(
-                path = path,
-                displayName = if (marked) description.removePrefix(NOTEBOOK_MARK).trim() else repo.string("human_name") ?: path,
-                cloneUrl = repo.string("clone_url") ?: "$web.git",
-                isNotebook = marked,
-            )
-        }.sortedByDescending { it.isNotebook }
+        val repos = mutableListOf<RemoteRepo>()
+        for (page in 1..MAX_PAGES) {
+            val batch = requestElement(provider, token, "GET", "$base&per_page=$PAGE_SIZE&page=$page").jsonArray
+            repos += parseRepos(batch)
+            if (batch.size < PAGE_SIZE) break
+        }
+        return repos.distinctBy { it.cloneUrl }
+            .sortedWith(compareByDescending<RemoteRepo> { it.isNotebook }.thenByDescending { it.updatedAt ?: 0L })
     }
 
     fun createPrivateRepo(provider: Provider, token: String, name: String, path: String): CreatedRepo {
@@ -141,10 +149,37 @@ class HostingApi {
         }
     }
 
-    private companion object {
-        const val NOTEBOOK_MARK = "[GitNotebook]"
-    }
+    companion object {
+        private const val NOTEBOOK_MARK = "[GitNotebook]"
+        private const val PAGE_SIZE = 100
+        private const val MAX_PAGES = 5
 
-    private fun JsonObject.string(key: String): String? =
-        (this[key] as? JsonPrimitive)?.takeIf { it.booleanOrNull == null || it.isString }?.contentOrNull
+        /** Reads a GitHub or Gitee repository list; both use the same field names for what we need. */
+        internal fun parseRepos(array: JsonArray): List<RemoteRepo> = array.mapNotNull { element ->
+            val repo = element as? JsonObject ?: return@mapNotNull null
+            val web = repo.string("html_url")?.removeSuffix(".git") ?: return@mapNotNull null
+            // Gitee: "path" is the URL part, "name" may be Chinese. GitHub: "name" is the URL part.
+            val path = repo.string("path") ?: repo.string("name") ?: web.substringAfterLast('/')
+            val description = repo.string("description").orEmpty()
+            val marked = description.startsWith(NOTEBOOK_MARK)
+            val owner = (repo["owner"] as? JsonObject)?.string("login")
+                ?: (repo["namespace"] as? JsonObject)?.string("path")
+                ?: web.substringBeforeLast('/').substringAfterLast('/')
+            RemoteRepo(
+                path = path,
+                displayName = if (marked) description.removePrefix(NOTEBOOK_MARK).trim() else repo.string("name") ?: path,
+                cloneUrl = repo.string("clone_url") ?: "$web.git",
+                isNotebook = marked,
+                isPrivate = (repo["private"] as? JsonPrimitive)?.booleanOrNull ?: true,
+                owner = owner,
+                updatedAt = (repo.string("pushed_at") ?: repo.string("updated_at"))?.let {
+                    runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull()
+                },
+                sizeKb = repo.string("size")?.toLongOrNull(),
+            )
+        }
+
+        private fun JsonObject.string(key: String): String? =
+            (this[key] as? JsonPrimitive)?.takeIf { it.booleanOrNull == null || it.isString }?.contentOrNull
+    }
 }

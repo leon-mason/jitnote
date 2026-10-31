@@ -20,9 +20,10 @@
 ## 使用方法（Android）
 
 1. 安装 App，点「连接云端账号」，按页面上的步骤在 Gitee（推荐）或 GitHub 生成一个令牌，粘贴进来。
-2. 点「新建笔记本」，起个名字。App 会在你的账号里建一个**私有**仓库。
+2. 点「添加笔记本 → 新建」，起个名字。App 会在你的账号里建一个**私有**仓库。
 3. 写笔记。写完返回就自动保存；点右上角的同步按钮上传到云端。
-4. 换手机或第二台手机：连接同一个账号后，在「下载已有的」里直接挑选笔记本。
+4. 已经有放笔记的仓库（比如 Obsidian 的）？「添加笔记本 → 用已有的」里直接选它，原有文件原样保留。
+5. 换手机或第二台手机：连接同一个账号后，同样在「用已有的」里挑选笔记本。
 
 令牌所需权限：Gitee 私人令牌保持默认勾选（至少 `user_info`、`projects`）；GitHub classic token 勾选 `repo`。令牌只用 Android Keystore 加密保存在手机上。
 
@@ -49,6 +50,7 @@ cd android
 cd editor
 npm install
 npm run dev     # 浏览器里调试（没有宿主时会加载示例笔记）
+npm test        # 打开再保存不改变笔记（含 Obsidian 写法）
 npm run build   # 输出到 android/app/src/main/assets/editor/
 ```
 

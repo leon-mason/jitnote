@@ -9,7 +9,6 @@
 
 import { CrepeBuilder } from '@milkdown/crepe/builder'
 import { cursor } from '@milkdown/crepe/feature/cursor'
-import { imageBlock } from '@milkdown/crepe/feature/image-block'
 import { linkTooltip } from '@milkdown/crepe/feature/link-tooltip'
 import { listItem } from '@milkdown/crepe/feature/list-item'
 import { placeholder } from '@milkdown/crepe/feature/placeholder'
@@ -17,10 +16,12 @@ import { table } from '@milkdown/crepe/feature/table'
 import { toolbar as selectionToolbar } from '@milkdown/crepe/feature/toolbar'
 import { commandsCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { redoCommand, undoCommand } from '@milkdown/kit/plugin/history'
+import { remarkGFMPlugin } from '@milkdown/kit/preset/gfm'
 import {
   blockquoteSchema,
   bulletListSchema,
   headingSchema,
+  imageSchema,
   listItemSchema,
   orderedListSchema,
   paragraphSchema,
@@ -32,7 +33,6 @@ import {
 import '@milkdown/crepe/theme/common/prosemirror.css'
 import '@milkdown/crepe/theme/common/reset.css'
 import '@milkdown/crepe/theme/common/cursor.css'
-import '@milkdown/crepe/theme/common/image-block.css'
 import '@milkdown/crepe/theme/common/link-tooltip.css'
 import '@milkdown/crepe/theme/common/list-item.css'
 import '@milkdown/crepe/theme/common/placeholder.css'
@@ -65,8 +65,37 @@ function resolveImage(url) {
   }
 }
 
+/**
+ * The CommonMark serializer escapes syntax it does not know. Undo that for the Obsidian
+ * extensions people commonly have in their notes, so saving never breaks them:
+ * [[wiki links]], ![[embeds]], > [!callouts] and #tags at the start of a line.
+ */
+function restoreObsidianSyntax(markdown) {
+  let result = markdown
+    .replace(/(!?)\\\[\\\[/g, '$1[[')
+    .replace(/^((?:[ \t]*>[ \t]?)+)\\\[!/gm, '$1[!')
+    .replace(/^([ \t]*)\\#(?=[^\s#])/gm, '$1#')
+    // ==highlight== at the start of a line or list item: only a line of nothing but "=" is special.
+    .replace(/^((?:[ \t]*(?:[-*+]|\d+[.)]|>)[ \t]+)*[ \t]*)\\=(?=[^\n]*[^=\s])/gm, '$1=')
+  // Plain brackets like a[0] or [备注] cannot become links unless the note defines link
+  // references ("[x]: url"; footnotes "[^1]:" don't count), so their escapes are just noise.
+  if (!/^ {0,3}\[(?!\^)[^\]\n]+\]:/m.test(result)) {
+    result = result.replace(/\\\[([^[\]\n]*)\](?![([:])/g, '[$1]')
+  }
+  return result
+}
+
+/** Width as shown in a monospace font: CJK and full-width characters take two columns. */
+function displayWidth(text) {
+  let width = 0
+  for (const char of text) {
+    width += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(char) ? 2 : 1
+  }
+  return width
+}
+
 function getMarkdown() {
-  return crepe ? frontMatter + crepe.getMarkdown() : ''
+  return crepe ? frontMatter + restoreObsidianSyntax(crepe.getMarkdown()) : ''
 }
 
 function emitChange() {
@@ -86,21 +115,26 @@ async function load(markdown, options = {}) {
     .addFeature(cursor)
     .addFeature(listItem)
     .addFeature(linkTooltip, { inputPlaceholder: '粘贴网址，回车确认' })
-    .addFeature(imageBlock, {
-      proxyDomURL: resolveImage,
-      blockCaptionPlaceholderText: '图片说明',
-      blockUploadPlaceholderText: '或粘贴图片网址',
-      inlineUploadPlaceholderText: '或粘贴图片网址',
-      blockConfirmButton: '确定',
-      blockUploadButton: '选择图片',
-      inlineUploadButton: '选择图片',
-    })
     .addFeature(placeholder, { text: '从这里开始写…', mode: 'doc' })
     .addFeature(table)
     .addFeature(selectionToolbar)
-  // Write lists the way most editors (Obsidian, Typora, GitHub) do, so files don't churn.
   crepe.editor.config((ctx) => {
-    ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' }))
+    // Write lists and dividers the way most editors (Obsidian, Typora, GitHub) do, so files don't churn.
+    ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-', rule: '-' }))
+    // Align table columns by display width, so Chinese tables line up in desktop editors too.
+    ctx.set(remarkGFMPlugin.options.key, { stringLength: displayWidth })
+    // Show relative images from the notebook folder without touching the stored path.
+    // (Crepe's image-block feature is not used: it rewrites the alt text into a size ratio.)
+    ctx.update(imageSchema.key, (prev) => (schemaCtx) => {
+      const schema = prev(schemaCtx)
+      return {
+        ...schema,
+        toDOM: (node) => {
+          const [tag, attrs] = schema.toDOM(node)
+          return [tag, { ...attrs, src: resolveImage(attrs.src) }]
+        },
+      }
+    })
   })
   crepe.on((listener) => {
     listener.markdownUpdated((_ctx, next, prev) => {
