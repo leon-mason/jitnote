@@ -9,6 +9,9 @@ final class AppUpdates: ObservableObject {
         let notes: String
         let downloadUrl: URL
         let size: Int64
+
+        /// A DMG opens to the familiar drag-to-Applications window; older releases only have a ZIP.
+        var isDiskImage: Bool { downloadUrl.pathExtension.lowercased() == "dmg" }
     }
 
     enum State: Equatable {
@@ -18,8 +21,8 @@ final class AppUpdates: ObservableObject {
         case upToDate
         case available(Release)
         case downloading(Release, downloaded: Int64)
-        /// The new app, unpacked and ready to be dragged into Applications.
-        case downloaded(Release, app: URL)
+        /// The new version, ready to install: the DMG, or the app unpacked from a ZIP.
+        case downloaded(Release, file: URL)
         /// `release` is set when the download failed, so it can be retried.
         case failed(String, release: Release?)
     }
@@ -75,8 +78,8 @@ final class AppUpdates: ObservableObject {
         task = Task {
             defer { task = nil }
             do {
-                let app = try await fetch(release)
-                state = .downloaded(release, app: app)
+                let file = try await fetch(release)
+                state = .downloaded(release, file: file)
             } catch is CancellationError {
             } catch {
                 state = .failed("下载没有完成，可能是网络不稳定。", release: release)
@@ -110,12 +113,12 @@ final class AppUpdates: ObservableObject {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("GitNotebook-update-\(release.version)")
         try? FileManager.default.removeItem(at: dir)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let zip = dir.appendingPathComponent("GitNotebook.zip")
+        let download = dir.appendingPathComponent(release.downloadUrl.lastPathComponent)
 
         let (bytes, response) = try await URLSession.shared.bytes(from: release.downloadUrl)
         guard ((response as? HTTPURLResponse)?.statusCode ?? 0) < 300 else { throw URLError(.badServerResponse) }
-        FileManager.default.createFile(atPath: zip.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: zip)
+        FileManager.default.createFile(atPath: download.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: download)
         var buffer = Data()
         var total: Int64 = 0
         var lastShown: Int64 = 0
@@ -135,11 +138,12 @@ final class AppUpdates: ObservableObject {
         total += Int64(buffer.count)
         try handle.close()
         if release.size > 0 && total != release.size { throw URLError(.networkConnectionLost) }
+        if release.isDiskImage { return download }
 
         // ditto keeps the app bundle's structure and signature intact.
         let unzip = Process()
         unzip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        unzip.arguments = ["-x", "-k", zip.path, dir.path]
+        unzip.arguments = ["-x", "-k", download.path, dir.path]
         try unzip.run()
         unzip.waitUntilExit()
         guard unzip.terminationStatus == 0,
@@ -149,13 +153,17 @@ final class AppUpdates: ObservableObject {
         return app
     }
 
-    /// Reads a GitHub release; nil when it has no Mac build or is a draft or pre-release.
+    /// Reads a GitHub release, preferring its Mac DMG over the ZIP; nil when it has no Mac build or is
+    /// a draft or pre-release.
     nonisolated static func parseRelease(_ release: [String: Any]) -> Release? {
         if release["draft"] as? Bool == true || release["prerelease"] as? Bool == true { return nil }
         guard var version = release["tag_name"] as? String else { return nil }
         if version.hasPrefix("v") { version.removeFirst() }
         let assets = release["assets"] as? [[String: Any]] ?? []
-        guard let asset = assets.first(where: { ($0["name"] as? String).map { $0.contains("-mac") && $0.hasSuffix(".zip") } ?? false }),
+        func macAsset(_ suffix: String) -> [String: Any]? {
+            assets.first { ($0["name"] as? String).map { $0.contains("-mac") && $0.hasSuffix(suffix) } ?? false }
+        }
+        guard let asset = macAsset(".dmg") ?? macAsset(".zip"),
               let url = (asset["browser_download_url"] as? String).flatMap(URL.init(string:))
         else { return nil }
         let notes = (release["body"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")

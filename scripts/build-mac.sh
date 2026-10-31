@@ -2,7 +2,7 @@
 #
 # 不用 Xcode 构建 Mac 版：直接调用 swiftc，Git 用 Homebrew 的 libgit2（brew install libgit2）。
 #
-#   scripts/build-mac.sh          → mac/build/GitNotebook.app 和 mac/build/GitNotebook-mac-<版本>.zip
+#   scripts/build-mac.sh          → mac/build/GitNotebook.app，以及发布用的 GitNotebook-mac-<版本>.dmg 和 .zip
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
 #   scripts/build-mac.sh --debug  → mac/build/GitNotebookDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
@@ -76,6 +76,8 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" -e "s/__MIN_MAC
     "$MAC/Resources/Info.plist" > "$APP/Contents/Info.plist"
 cp -R android/app/src/main/assets/editor "$APP/Contents/Resources/editor"
 [ -f "$MAC/Resources/AppIcon.icns" ] && cp "$MAC/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+# Finder shows "Git 笔记本" instead of the bundle's file name (the app is Chinese only, whatever the system language).
+cp -R "$MAC/Resources/zh-Hans.lproj" "$MAC/Resources/en.lproj" "$APP/Contents/Resources/"
 
 # 把 libgit2 和它依赖的 Homebrew 库一起放进 App，用户的 Mac 上不需要装任何东西。
 bundle_libs() {
@@ -104,10 +106,22 @@ if [ "${1:-}" = "--debug" ]; then
     exit 0
 fi
 
+# DMG for people: opens a window with the app next to Applications, to drag it across.
+DMG="$BUILD/GitNotebook-mac-$VERSION.dmg"
+STAGE="$BUILD/dmg"
+rm -rf "$STAGE" "$DMG"
+mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/应用程序"
+hdiutil create -quiet -volname "Git 笔记本" -srcfolder "$STAGE" -fs HFS+ -format UDZO "$DMG"
+rm -rf "$STAGE"
+
+# ZIP for the update check of 0.3.0, which only knows ZIPs; can go once nobody runs 0.3.0.
 ZIP="$BUILD/GitNotebook-mac-$VERSION.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "✓ $APP"
+echo "✓ $DMG"
 echo "✓ $ZIP"
 
 [ "${1:-}" = "--run" ] && open "$APP"

@@ -176,6 +176,21 @@ enum AppUpdatesTests {
             try expectEqual(release.notes, "· 有 Mac 版了\n· 修复同步偶尔失败")
             try expectEqual(release.downloadUrl.absoluteString, "https://example.com/m.zip")
             try expectEqual(release.size, 9_000_000)
+            try expect(!release.isDiskImage)
+        },
+        TestCase("prefersTheDiskImageWhenThereIsOne") { _ in
+            let release = AppUpdates.parseRelease(json("""
+            {
+              "tag_name": "v0.4.0",
+              "assets": [
+                {"name": "GitNotebook-mac-0.4.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"},
+                {"name": "GitNotebook-mac-0.4.0.dmg", "size": 9500000, "browser_download_url": "https://example.com/m.dmg"}
+              ]
+            }
+            """))!
+            try expectEqual(release.downloadUrl.absoluteString, "https://example.com/m.dmg")
+            try expectEqual(release.size, 9_500_000)
+            try expect(release.isDiskImage)
         },
         TestCase("ignoresReleasesWithoutAMacBuildOrNotYetPublic") { _ in
             let apkOnly = #"[{"name": "a.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"}]"#

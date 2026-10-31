@@ -42,8 +42,8 @@
 ## 版本和发布
 
 - 和 Android 共用版本号（`android/app/build.gradle.kts` 的 `appVersion`），`scripts/release.sh` 不变。
-- `release.yml` 增加 macOS 任务：在 GitHub 的 Mac 机器上 `brew install libgit2`、运行 `scripts/build-mac.sh`，把 `GitNotebook-mac-x.y.z.zip` 上传到同一个 Release。`ci.yml` 增加 Mac 测试。
-- 检查更新：和 Android 同样的时机和弹窗；找 Release 里的 Mac zip，下载解压后在访达里显示新 App，提示拖到「应用程序」替换。
+- `release.yml` 增加 macOS 任务：在 GitHub 的 Mac 机器上 `brew install libgit2`、运行 `scripts/build-mac.sh`，把 `GitNotebook-mac-x.y.z.dmg`（给人下载：打开就是拖到「应用程序」的窗口）和 `.zip`（给 0.3.0 的检查更新用，它只认 ZIP）上传到同一个 Release。`ci.yml` 增加 Mac 测试。
+- 检查更新：和 Android 同样的时机和弹窗；优先下载 Release 里的 Mac DMG，下好后「打开安装包」，用户拖到「应用程序」替换（和第一次安装一样）；只有 ZIP 的旧版本则解压后在访达里显示。
 - 没有苹果开发者账号：首次打开需右键「打开」，README 写明。
 
 ## 已知限制

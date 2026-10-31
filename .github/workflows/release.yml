@@ -62,7 +62,10 @@ jobs:
       - run: scripts/build-mac.sh --test
       - run: scripts/build-mac.sh
 
+      # The DMG is what people download; the ZIP serves the update check of 0.3.0, which only knows ZIPs.
       - name: Add the Mac app to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "mac/build/GitNotebook-mac-${GITHUB_REF_NAME#v}.zip"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" "mac/build/GitNotebook-mac-$version.dmg" "mac/build/GitNotebook-mac-$version.zip"
