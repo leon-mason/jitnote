@@ -103,7 +103,7 @@ final class Notebooks: ObservableObject {
         ]
         try (JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]) + Data("\n".utf8)).write(to: meta)
         let author = author(account), device = device
-        try await run(notebook) { try $0.commitAll(author: author, device: device, message: "新建笔记本：\(name)") }
+        _ = try await run(notebook) { try $0.commitAll(author: author, device: device, message: "新建笔记本：\(name)") }
         await sync(notebook)
         return notebook
     }
@@ -148,7 +148,7 @@ final class Notebooks: ObservableObject {
         onProgress("正在下载笔记本…")
         let credentials = try await credentials(account)
         let target = dir(notebook)
-        try await Self.background {
+        _ = try await Self.background {
             try NotebookGit.clone(url: url, into: target, credentials: credentials) { received, total in
                 guard total > 0 else { return }
                 let percent = received * 100 / total
@@ -285,7 +285,7 @@ final class Notebooks: ObservableObject {
     func restore(_ notebook: Notebook, path: String, commit: String) async throws {
         guard let account = account(notebook.accountId) else { return }
         let author = author(account), device = device
-        try await run(notebook) { try $0.restore(path, commit: commit, author: author, device: device) }
+        _ = try await run(notebook) { try $0.restore(path, commit: commit, author: author, device: device) }
         revision += 1
     }
 

@@ -48,7 +48,7 @@ When a new version is out, the app offers to update when you open it (it checks 
 
 ## Usage (Mac)
 
-Requires a Mac with Apple silicon.
+Requires a Mac with Apple silicon and a recent macOS (currently the same version as the build machine; on an older system macOS says the app can't be opened).
 
 1. Download `GitNotebook-mac-x.y.z.zip` from [Releases](https://github.com/leon-mason/git-notebook/releases/latest), unzip it, and drag "Git 笔记本" into Applications.
 2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.

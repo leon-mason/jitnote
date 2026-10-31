@@ -18,13 +18,17 @@ APP="$BUILD/GitNotebook.app"
 VERSION=$(sed -n 's/^val appVersion = "\(.*\)"$/\1/p' android/app/build.gradle.kts)
 IFS=. read -r major minor patch <<< "$VERSION"
 BUILD_NUMBER=$((major * 10000 + minor * 100 + patch))
-TARGET="arm64-apple-macos14.0"
 
 die() { echo "✗ $*" >&2; exit 1; }
 
 command -v brew > /dev/null || die "需要 Homebrew：https://brew.sh"
 GIT2=$(brew --prefix libgit2)
 [ -f "$GIT2/include/git2.h" ] || die "需要 libgit2：brew install libgit2"
+
+# The app can't run on an older macOS than the libgit2 it bundles was built for; say so in the app.
+MIN_MACOS=$(otool -l "$GIT2/lib/libgit2.dylib" | awk '/minos/ { print $2; exit }')
+[ "$(printf '%s\n14.0\n' "$MIN_MACOS" | sort -V | head -1)" = "14.0" ] || MIN_MACOS=14.0
+TARGET="arm64-apple-macos$MIN_MACOS"
 
 # 命令行工具里可能同时有好几个 SDK，最新的不一定和编译器配套；挑第一个能用的。
 pick_sdk() {
@@ -61,7 +65,8 @@ swiftc "${SWIFT_FLAGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} -O -parse-as-library \
     "$MAC"/Sources/Core/*.swift "$MAC"/Sources/Data/*.swift "$MAC"/Sources/UI/*.swift \
     -o "$APP/Contents/MacOS/GitNotebook"
 
-sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" "$MAC/Resources/Info.plist" > "$APP/Contents/Info.plist"
+sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" -e "s/__MIN_MACOS__/$MIN_MACOS/" \
+    "$MAC/Resources/Info.plist" > "$APP/Contents/Info.plist"
 cp -R android/app/src/main/assets/editor "$APP/Contents/Resources/editor"
 [ -f "$MAC/Resources/AppIcon.icns" ] && cp "$MAC/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 
@@ -70,11 +75,12 @@ bundle_libs() {
     local binary="$1" dep name
     for dep in $(otool -L "$binary" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local)/'); do
         name=$(basename "$dep")
-        install_name_tool -change "$dep" "@rpath/$name" "$binary"
+        # The signatures these edits break are redone below.
+        install_name_tool -change "$dep" "@rpath/$name" "$binary" 2> /dev/null
         if [ ! -f "$APP/Contents/Frameworks/$name" ]; then
             cp "$dep" "$APP/Contents/Frameworks/$name"
             chmod u+w "$APP/Contents/Frameworks/$name"
-            install_name_tool -id "@rpath/$name" "$APP/Contents/Frameworks/$name"
+            install_name_tool -id "@rpath/$name" "$APP/Contents/Frameworks/$name" 2> /dev/null
             bundle_libs "$APP/Contents/Frameworks/$name"
         fi
     done

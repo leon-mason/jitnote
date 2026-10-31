@@ -12,8 +12,9 @@ import Foundation
 ///   `ConflictRecord` so the user can switch to it.
 /// - a file deleted on one side and changed on the other is kept.
 ///
-/// Not thread-safe: callers serialize access per notebook.
-final class NotebookGit {
+/// Not thread-safe: callers serialize access per notebook (see `Notebooks.run`), which is why it is
+/// marked Sendable without checks.
+final class NotebookGit: @unchecked Sendable {
     static let remoteName = "origin"
     static let defaultBranch = "main"
     private static let maxAttempts = 3

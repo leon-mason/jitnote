@@ -48,7 +48,7 @@
 
 ## 使用方法（Mac）
 
-需要 Apple 芯片的 Mac。
+需要 Apple 芯片的 Mac，以及较新的 macOS（目前和打包用的系统版本一致；系统太旧时会直接提示无法打开）。
 
 1. 在 [Releases](https://github.com/leon-mason/git-notebook/releases/latest) 下载 `GitNotebook-mac-x.y.z.zip`，解压后把「Git 笔记本」拖到「应用程序」文件夹。
 2. 第一次打开：在「应用程序」里**右键点它 → 打开**，再点「打开」。因为没有苹果开发者签名，直接双击会被系统拦下，只有第一次需要这样做。
