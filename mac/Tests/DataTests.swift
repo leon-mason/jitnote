@@ -96,6 +96,18 @@ enum NoteIndexTests {
             try expectEqual(tree[0].noteCount, 1)
         },
 
+        TestCase("symlinkIsListedUnderItsOwnName") { root in
+            try write(root, "AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("project_memory.md").path, withDestinationPath: "AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("CLAUDE.md").path, withDestinationPath: "@AGENTS.md")
+
+            // Each entry keeps its own path: the sidebar uses it as the row id, and two rows with the
+            // same id showed one file twice and hid the other.
+            let tree = NoteIndex.tree(in: root)
+            try expectEqual(tree.map(\.name), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
+            try expectEqual(tree.map(\.path), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
+        },
+
         TestCase("previewSkipsFrontMatterTitleAndMarkup") { _ in
             try expectEqual(
                 NoteIndex.preview("---\ntags: [会议]\n---\n# 周会记录\n\n> 下周上线**检查更新**功能\n\n- 需要先发\n- [ ] 一个版本\n"),

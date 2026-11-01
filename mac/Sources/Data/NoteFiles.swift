@@ -127,9 +127,13 @@ enum NoteIndex {
         return files
     }
 
+    /// Only the folders are resolved (/var vs /private/var), never the file itself: a symlinked note
+    /// keeps its own name instead of turning into the path of the file it points at.
     static func relativePath(of url: URL, in root: URL) -> String {
         let base = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let full = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let standardized = url.standardizedFileURL
+        let full = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
+            .appendingPathComponent(standardized.lastPathComponent).path
         guard full.hasPrefix(base + "/") else { return url.lastPathComponent }
         return String(full.dropFirst(base.count + 1)).precomposedStringWithCanonicalMapping
     }
