@@ -79,4 +79,22 @@ class NoteIndexTest {
         write("b.md", modified = 60_000_000); write("a.md", modified = 60_030_000)
         assertEquals(listOf("a.md", "b.md"), NoteIndex.tree(tmp.root, NoteSort.MODIFIED_DESC).map { it.name })
     }
+
+    @Test
+    fun treeOrdersALargeFolderBySnapshotAndKeepsEachModifiedTime() {
+        // Distinct minutes, written in an order unrelated to the times, with folders mixed in.
+        val minutes = (1..300).map { (it * 37) % 301 + 1 }
+        minutes.forEachIndexed { i, m -> write("n$i.md", modified = m * 60_000L + 1_000_000_000L) }
+        write("乙/x.md"); write("甲/x.md")
+
+        val newestFirst = NoteIndex.tree(tmp.root, NoteSort.MODIFIED_DESC)
+        assertEquals(listOf("甲", "乙"), newestFirst.take(2).map { it.name })
+        val files = newestFirst.drop(2)
+        assertEquals(300, files.size)
+        assertEquals(files.map { it.modified }.sortedDescending(), files.map { it.modified })
+        assertEquals(files.map { File(tmp.root, it.path).lastModified() }, files.map { it.modified })
+
+        val oldestFirst = NoteIndex.tree(tmp.root, NoteSort.MODIFIED_ASC).drop(2)
+        assertEquals(files.reversed().map { it.name }, oldestFirst.map { it.name })
+    }
 }

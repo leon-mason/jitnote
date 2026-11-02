@@ -50,11 +50,17 @@ object NoteIndex {
     fun tree(root: File, sort: NoteSort = NoteSort.TITLE_ASC, showHidden: Boolean = false): List<Entry> =
         entries(root, root, sort, showHidden)
 
+    /** A child as it was when the directory was read, so sorting and listing never stat the disk again. */
+    private class Child(val file: File) {
+        val isDirectory = file.isDirectory
+        val modified = file.lastModified()
+    }
+
     private fun entries(root: File, dir: File, sort: NoteSort, showHidden: Boolean): List<Entry> {
-        val byName = compareBy(collator) { file: File -> file.name }
+        val byName = compareBy(collator) { child: Child -> child.file.name }
         // Minutes, not milliseconds: a fresh download writes every file at about the same moment,
         // and those should simply be listed by name.
-        val minute = { file: File -> file.lastModified() / 60_000 }
+        val minute = { child: Child -> child.modified / 60_000 }
         val folders = if (sort == NoteSort.TITLE_DESC) byName.reversed() else byName
         val files = when (sort) {
             NoteSort.MODIFIED_DESC -> compareByDescending(minute).then(byName)
@@ -62,18 +68,21 @@ object NoteIndex {
             NoteSort.TITLE_ASC -> byName
             NoteSort.TITLE_DESC -> byName.reversed()
         }
+        // Stat each child once before sorting: a file written while the sort runs would otherwise
+        // change the comparator's answers midway, which TimSort rejects with an exception.
         return (dir.listFiles() ?: emptyArray())
             .filter { !isHidden(it.name, showHidden) }
-            .sortedWith(compareBy<File> { !it.isDirectory }.thenComparing { a, b -> (if (a.isDirectory) folders else files).compare(a, b) })
+            .map { Child(it) }
+            .sortedWith(compareBy<Child> { !it.isDirectory }.thenComparing { a, b -> (if (a.isDirectory) folders else files).compare(a, b) })
             .map { child ->
-                val children = if (child.isDirectory) entries(root, child, sort, showHidden) else emptyList()
+                val children = if (child.isDirectory) entries(root, child.file, sort, showHidden) else emptyList()
                 Entry(
-                    path = child.relativeTo(root).invariantSeparatorsPath,
-                    name = child.name,
+                    path = child.file.relativeTo(root).invariantSeparatorsPath,
+                    name = child.file.name,
                     isFolder = child.isDirectory,
                     children = children,
-                    noteCount = if (child.isDirectory) children.sumOf { if (it.isFolder) it.noteCount else if (isNote(File(child, it.name))) 1 else 0 } else 0,
-                    modified = child.lastModified(),
+                    noteCount = if (child.isDirectory) children.sumOf { if (it.isFolder) it.noteCount else if (isNote(File(child.file, it.name))) 1 else 0 } else 0,
+                    modified = child.modified,
                 )
             }
     }
