@@ -53,7 +53,8 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
     private let root: URL
     private let folder: String
     private let content: String
-    private let readonly: Bool
+    /// Preview shows the note read-only. Changes while the note is open, so `ready` reads the latest value.
+    private(set) var readonly: Bool
     private let saver: NoteSaver
     private let assets: NoteAssets
     var onOpenImage: (String) -> Void = { _ in }
@@ -86,6 +87,14 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         webView.navigationDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
         webView.load(URLRequest(url: URL(string: "\(scheme)://\(host)/editor/index.html")!))
+    }
+
+    /// Switches between editing and read-only preview without reloading. Before the editor has loaded
+    /// the call is a no-op; `ready` passes the current value then.
+    func setReadonly(_ readonly: Bool) {
+        guard readonly != self.readonly else { return }
+        self.readonly = readonly
+        webView.evaluateJavaScript("window.JitnoteEditor && window.JitnoteEditor.setReadonly(\(readonly))")
     }
 
     /// Saves the latest content; called before syncing, when switching notes and when the app goes away.
@@ -188,6 +197,7 @@ struct RichEditor: NSViewRepresentable {
     let root: URL
     let path: String
     let content: String
+    let readonly: Bool
     let bridge: EditorBridge
     let onSaved: () -> Void
     let onOpenImage: (String) -> Void
@@ -201,7 +211,7 @@ struct RichEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let controller = EditorController(root: root, path: path, content: content, readonly: false)
+        let controller = EditorController(root: root, path: path, content: content, readonly: readonly)
         controller.onSaved = onSaved
         controller.onOpenImage = onOpenImage
         context.coordinator.controller = controller
@@ -210,7 +220,9 @@ struct RichEditor: NSViewRepresentable {
         return controller.webView
     }
 
-    func updateNSView(_ view: WKWebView, context: Context) {}
+    func updateNSView(_ view: WKWebView, context: Context) {
+        context.coordinator.controller?.setReadonly(readonly)
+    }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
         guard let controller = coordinator.controller else { return }

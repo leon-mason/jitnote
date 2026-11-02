@@ -26,6 +26,8 @@ extension Notification.Name {
     static let syncNow = Notification.Name("Jitnote.syncNow")
     /// Save the open note and record a version, e.g. when the app goes to the background.
     static let saveNow = Notification.Name("Jitnote.saveNow")
+    /// Switch the open Markdown note between editing and preview.
+    static let toggleViewMode = Notification.Name("Jitnote.toggleViewMode")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -74,6 +76,10 @@ struct JitnoteApp: App {
                 Divider()
                 Button("同步") { NotificationCenter.default.post(name: .syncNow, object: nil) }
                     .keyboardShortcut("r")
+            }
+            CommandGroup(after: .toolbar) {
+                Button("切换编辑/预览") { NotificationCenter.default.post(name: .toggleViewMode, object: nil) }
+                    .keyboardShortcut("e")
             }
             CommandGroup(after: .appInfo) {
                 Button("检查更新…") { updates.checkNow() }

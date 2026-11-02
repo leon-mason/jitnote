@@ -67,6 +67,8 @@ struct NotebookView: View {
     /// The file or folder marked in the tree ("" for none); new items go here. Not saved.
     @State private var highlighted = ""
     @State private var selection: String?
+    /// Edit or preview for the open note; reset to the default setting whenever another note is opened.
+    @State private var viewMode = ViewMode.edit
     /// nil until the first load, so an empty notebook is not announced before the files are read.
     @State private var tree: [NoteIndex.Entry]?
     @State private var conflictCount = 0
@@ -135,10 +137,13 @@ struct NotebookView: View {
         .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote(currentFolder) }
         .onReceive(NotificationCenter.default.publisher(for: .newFolder)) { _ in prompt = .newFolder(currentFolder) }
         .onReceive(NotificationCenter.default.publisher(for: .syncNow)) { _ in sync() }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleViewMode)) { _ in
+            if let selection, isMarkdown(selection), !syncing { toggleViewMode() }
+        }
         #if GN_DEBUG_HOOKS
         .onReceive(NotificationCenter.default.publisher(for: .debugCommand)) { note in
             guard let command = note.object as? String else { return }
-            if command.hasPrefix("select ") { selection = String(command.dropFirst(7)) }
+            if command.hasPrefix("select ") { show(String(command.dropFirst(7))) }
             if command.hasPrefix("folder ") { highlighted = String(command.dropFirst(7)) }
             if command == "sync" { sync() }
             if command == "newnote" { prompt = .newNote(currentFolder) }
@@ -203,7 +208,7 @@ struct NotebookView: View {
                     }
                 }
         } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
-            NoteDetail(root: root, path: path, bridge: bridge,
+            NoteDetail(root: root, path: path, readonly: viewMode == .preview, bridge: bridge,
                        onSaved: {},
                        onClose: {
                            notebooks.commitInBackground(notebook)
@@ -212,7 +217,13 @@ struct NotebookView: View {
                        onOpenImage: { image = root.appendingPathComponent($0) })
                 .id(path)
                 .toolbar {
-                    ToolbarItem {
+                    ToolbarItemGroup {
+                        if isMarkdown(path) {
+                            Button(action: toggleViewMode) {
+                                Label(viewMode == .preview ? "编辑" : "预览", systemImage: viewMode == .preview ? "square.and.pencil" : "eye")
+                            }
+                            .help(viewMode == .preview ? "切换到编辑（⌘E）" : "切换到预览（⌘E）")
+                        }
                         Button { historyPath = path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
                             .help("历史版本")
                     }
@@ -270,9 +281,23 @@ struct NotebookView: View {
         if NoteAssets.isImage(path) {
             image = root.appendingPathComponent(path)
         } else {
-            selection = path
+            show(path)
         }
     }
+
+    /// Opens [path] on the right. Every change of the open note goes through here, so the mode
+    /// starts from the default setting (or [mode]) on each note; reopening the open note keeps it.
+    private func show(_ path: String, mode: ViewMode? = nil) {
+        if path == selection && mode == nil { return }
+        selection = path
+        viewMode = mode ?? notebooks.state.defaultViewMode
+    }
+
+    private func isMarkdown(_ path: String) -> Bool {
+        ["md", "markdown"].contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    private func toggleViewMode() { viewMode = viewMode == .preview ? .edit : .preview }
 
     private func sync() {
         Task {
@@ -293,7 +318,7 @@ struct NotebookView: View {
                     self.prompt = nil
                     refresh += 1
                     reveal(path)
-                    selection = path
+                    show(path, mode: .edit)
                     return nil
                 } catch {
                     return error.localizedDescription
@@ -325,7 +350,7 @@ struct NotebookView: View {
                     // The tree keeps its open folders and highlight under the new name.
                     notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
                     highlighted = FileTree.moved(highlighted, old: old, new: new)
-                    if selection == old { selection = new }
+                    selection = selection.map { FileTree.moved($0, old: old, new: new) }
                     notebooks.commitInBackground(notebook)
                     refresh += 1
                     return nil
@@ -359,6 +384,7 @@ private struct PathItem: Identifiable {
 private struct NoteDetail: View {
     let root: URL
     let path: String
+    let readonly: Bool
     let bridge: EditorBridge
     let onSaved: () -> Void
     let onClose: () -> Void
@@ -371,7 +397,7 @@ private struct NoteDetail: View {
         Group {
             if let content {
                 if ["md", "markdown"].contains(url.pathExtension.lowercased()) {
-                    RichEditor(root: root, path: path, content: content, bridge: bridge,
+                    RichEditor(root: root, path: path, content: content, readonly: readonly, bridge: bridge,
                                onSaved: onSaved, onOpenImage: onOpenImage, onClose: onClose)
                 } else {
                     PlainEditor(file: url, initial: content, bridge: bridge, onSaved: onSaved, onClose: onClose)

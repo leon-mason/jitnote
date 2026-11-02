@@ -30,6 +30,13 @@ struct GeneralSettingsView: View {
                 Text("显示隐藏文件")
                 Text("显示以 . 开头的文件和文件夹，比如 .obsidian、.gitignore。Git 自己的 .git 文件夹始终不显示。")
             }
+            Picker(selection: Binding(get: { notebooks.state.defaultViewMode }, set: notebooks.setDefaultViewMode)) {
+                Text("编辑").tag(ViewMode.edit)
+                Text("预览").tag(ViewMode.preview)
+            } label: {
+                Text("打开笔记时默认为")
+                Text("新建的笔记和纯文本文件总是编辑。")
+            }
         }
         .formStyle(.grouped)
     }
