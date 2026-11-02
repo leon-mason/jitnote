@@ -21,8 +21,11 @@ body.with-toolbar #editor {
   padding-bottom: var(--gn-toolbar-height);
 }
 
-/* Read-only has no formatting UI. Switching to it with text selected would leave Crepe's floating toolbar open. */
-body:not(.with-toolbar) .milkdown-toolbar {
+/* Read-only has no formatting UI. Switching to it with text selected or a link hovered would leave
+   Crepe's floating toolbar and link tooltip open, and the tooltip's edit and remove buttons don't check editable. */
+body:not(.with-toolbar) .milkdown-toolbar,
+body:not(.with-toolbar) .milkdown-link-preview,
+body:not(.with-toolbar) .milkdown-link-edit {
   display: none !important;
 }
 
