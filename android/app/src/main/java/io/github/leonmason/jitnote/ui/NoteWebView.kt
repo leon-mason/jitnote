@@ -121,11 +121,13 @@ fun NoteWebView(
                     object {
                         @JavascriptInterface
                         fun onReady() {
-                            val options = JSONObject()
-                                .put("readonly", latestReadonly)
-                                .put("baseUrl", baseUrl)
-                                .put("notebookUrl", notebookUrl)
                             post {
+                                // Read on the main thread at the moment of loading, so a toggle made
+                                // between onReady and here is not overwritten by load.
+                                val options = JSONObject()
+                                    .put("readonly", latestReadonly)
+                                    .put("baseUrl", baseUrl)
+                                    .put("notebookUrl", notebookUrl)
                                 evaluateJavascript(
                                     "window.JitnoteEditor.load(${JSONObject.quote(content)}, $options)",
                                     null,
