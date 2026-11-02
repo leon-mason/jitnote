@@ -311,6 +311,14 @@ enum NotebookGitTests {
             try expectEqual(kind("failed to connect to 10.0.0.1: Connection refused"), .network)
             try expectEqual(kind("unexpected http status code: 404"), .notFound)
             try expectEqual(kind("https://x/y.git: Repository not found"), .notFound)
+            let certificate = NotebookGit.classify(GitError(code: GIT_ECERTIFICATE.rawValue, message: "the SSL certificate is invalid"))
+            try expect(certificate.message.contains("安全证书"), certificate.message)
+        },
+
+        TestCase("trustsTheCertificatesOfMacOS") { _ in
+            try expect(FileManager.default.fileExists(atPath: "/etc/ssl/cert.pem"))
+            // Fails if the TLS library behind libgit2 stops accepting a certificate file.
+            try expectEqual(gn_use_system_certificates(), 0)
         },
     ]
 }

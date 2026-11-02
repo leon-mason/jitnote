@@ -15,6 +15,7 @@ enum Git2 {
         git_libgit2_init()
         _ = gn_isolate_config()
         _ = gn_set_timeouts(60_000)
+        _ = gn_use_system_certificates()
     }()
 
     /// Call once before any other libgit2 function.

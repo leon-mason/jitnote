@@ -644,6 +644,10 @@ final class NotebookGit: @unchecked Sendable {
         if code == GIT_EAUTH.rawValue || ["authentication", "401", "403", "not authorized", "not permitted", "credentials"].contains(where: text.contains) {
             return SyncError(.auth, "账号授权无效或已过期，请到「云端账号」里重新连接")
         }
+        // Checked before the network words below: its message says "SSL", but retrying won't help.
+        if code == GIT_ECERTIFICATE.rawValue {
+            return SyncError(.network, "无法验证云端的安全证书，请检查电脑时间和代理设置后重试（\(message)）")
+        }
         if ["failed to resolve address", "could not resolve", "failed to connect", "connection refused", "timed out",
             "network is unreachable", "socket", "ssl", "tls", "connection reset"].contains(where: text.contains) {
             return SyncError(.network, "网络连接失败，请检查网络后重试")
