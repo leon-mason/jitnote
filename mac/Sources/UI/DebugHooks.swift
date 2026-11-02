@@ -12,7 +12,7 @@ import WebKit
 ///   settings                  opens the Settings window
 ///   js <expression>           evaluates in the editor and logs the result
 ///   dump <path>               writes the window's accessibility text tree (sidebar, toolbar, ...)
-///   select <note path> | folder <folder path> | sync   handled by the main window
+///   select <note path> | folder <path to highlight in the tree> | sync   handled by the main window
 ///   settings | tab <general|notebooks|accounts|about>   opens Settings / picks its tab
 extension Notification.Name {
     static let debugCommand = Notification.Name("Jitnote.debugCommand")

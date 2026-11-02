@@ -13,43 +13,6 @@ private func write(_ root: URL, _ path: String, _ text: String = "", modified: T
 
 enum NoteIndexTests {
     static let all: [TestCase] = [
-        TestCase("listsEveryNoteInEveryFolderButNotOtherFiles") { root in
-            try write(root, "读书清单.md")
-            try write(root, "会议/2026/周会.md")
-            try write(root, "技术/安卓/发布.markdown")
-            try write(root, "技术/随手记.txt")
-            try write(root, "附件/cat.png")
-            try write(root, ".obsidian/workspace.md")
-            try write(root, ".git/HEAD")
-
-            let notes = NoteIndex.notes(in: root, sort: .titleAsc)
-            try expectEqual(notes.map(\.title).sorted(), ["发布", "周会", "读书清单", "随手记"])
-            try expectEqual(notes.first { $0.title == "周会" }!.folder, "会议/2026")
-            try expectEqual(notes.first { $0.title == "读书清单" }!.folder, "")
-            try expectEqual(notes.first { $0.title == "发布" }!.path, "技术/安卓/发布.markdown")
-        },
-
-        TestCase("filtersByFolderIncludingSubfolders") { root in
-            try write(root, "a.md")
-            try write(root, "技术/b.md")
-            try write(root, "技术/安卓/c.md")
-            try write(root, "技术员/d.md")
-
-            try expectEqual(NoteIndex.notes(in: root, sort: .titleAsc, folder: "技术").map(\.title), ["b", "c"])
-            try expectEqual(NoteIndex.notes(in: root, sort: .titleAsc, folder: "技术/安卓").map(\.title), ["c"])
-        },
-
-        TestCase("sortsByTimeOrTitle") { root in
-            try write(root, "b.md", modified: 3_000)
-            try write(root, "a.md", modified: 1_000)
-            try write(root, "C.md", modified: 2_000)
-
-            try expectEqual(NoteIndex.notes(in: root, sort: .modifiedDesc).map(\.title), ["b", "C", "a"])
-            try expectEqual(NoteIndex.notes(in: root, sort: .modifiedAsc).map(\.title), ["a", "C", "b"])
-            try expectEqual(NoteIndex.notes(in: root, sort: .titleAsc).map(\.title), ["a", "b", "C"])
-            try expectEqual(NoteIndex.notes(in: root, sort: .titleDesc).map(\.title), ["C", "b", "a"])
-        },
-
         TestCase("buildsTheFileTreeLikeObsidian") { root in
             try write(root, "b.md")
             try write(root, "A.txt")
@@ -105,10 +68,8 @@ enum NoteIndexTests {
             try write(root, ".obsidian/templates/模板.md")
             try write(root, ".git/notes.md")
 
-            try expectEqual(NoteIndex.notes(in: root, sort: .titleAsc).map(\.title), ["a"])
             try expectEqual(NoteIndex.tree(in: root).map(\.name), ["a.md"])
 
-            try expectEqual(Set(NoteIndex.notes(in: root, sort: .titleAsc, showHidden: true).map(\.title)), ["a", "模板"])
             let tree = NoteIndex.tree(in: root, showHidden: true)
             try expectEqual(tree.map(\.name), [".obsidian", ".gitignore", "a.md"])
             try expectEqual(tree[0].noteCount, 1)
@@ -124,15 +85,6 @@ enum NoteIndexTests {
             let tree = NoteIndex.tree(in: root)
             try expectEqual(tree.map(\.name), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
             try expectEqual(tree.map(\.path), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
-        },
-
-        TestCase("previewSkipsFrontMatterTitleAndMarkup") { _ in
-            try expectEqual(
-                NoteIndex.preview("---\ntags: [会议]\n---\n# 周会记录\n\n> 下周上线**检查更新**功能\n\n- 需要先发\n- [ ] 一个版本\n"),
-                "下周上线检查更新功能 需要先发 一个版本"
-            )
-            try expectEqual(NoteIndex.preview("看这张图\n![猫](assets/cat.png)\n![[cat.png]]"), "看这张图 猫")
-            try expectEqual(NoteIndex.preview("# 只有标题\n"), "")
         },
     ]
 }

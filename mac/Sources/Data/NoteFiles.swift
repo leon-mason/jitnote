@@ -1,21 +1,8 @@
 import Foundation
 
-/// The notebook as the main window shows it: every note in one flat list, and the folders on their
-/// own as a tree. Hidden files and folders (.git, .obsidian, ...) are skipped. Same rules as Android.
+/// The notebook as the main window shows it: every visible file and folder as a tree.
+/// Hidden files and folders (.git, .obsidian, ...) are skipped. Same rules as Android.
 enum NoteIndex {
-    struct Note: Identifiable, Hashable {
-        let url: URL
-        /// Relative to the notebook root, e.g. "会议/2026/周会.md".
-        let path: String
-        /// Folder relative to the notebook root; "" for the root itself.
-        let folder: String
-        let title: String
-        let modified: Int64
-        let preview: String
-
-        var id: String { path }
-    }
-
     /// A file or folder in the sidebar tree, named in full like Obsidian's file explorer.
     struct Entry: Identifiable, Hashable {
         let path: String
@@ -28,48 +15,14 @@ enum NoteIndex {
         let modified: Int64
 
         var id: String { path }
-        /// Temporary, for `OutlineGroup` (it wants nil to hide the disclosure arrow); goes with the sidebar rewrite.
-        var optionalChildren: [Entry]? { children.isEmpty ? nil : children }
     }
 
     static let noteExtensions: Set<String> = ["md", "markdown", "txt"]
-
-    static func isNote(_ url: URL) -> Bool {
-        noteExtensions.contains(url.pathExtension.lowercased()) && !url.hasDirectoryPath && isFile(url)
-    }
 
     /// Hidden files start with "." (.obsidian, .gitignore) and are only listed when [showHidden] is on.
     /// Git's own .git folder is never listed: changing it by hand can break the notebook.
     static func isHidden(_ name: String, showHidden: Bool) -> Bool {
         name == ".git" || (!showHidden && name.hasPrefix("."))
-    }
-
-    /// All notes under [folder] (and its subfolders), sorted by [sort].
-    static func notes(in root: URL, sort: NoteSort, folder: String = "", showHidden: Bool = false) -> [Note] {
-        let start = folder.isEmpty ? root : root.appendingPathComponent(folder)
-        let notes = visibleFiles(under: start, showHidden: showHidden).filter(isNote).map { url -> Note in
-            let path = relativePath(of: url, in: root)
-            let folder = path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : ""
-            return Note(
-                url: url,
-                path: path,
-                folder: folder,
-                title: url.deletingPathExtension().lastPathComponent,
-                modified: modified(url),
-                preview: preview(readHead(url))
-            )
-        }
-        // Minutes, not milliseconds: a fresh download writes every file at about the same moment,
-        // and those should simply be listed by title.
-        func minute(_ note: Note) -> Int64 { note.modified / 60_000 }
-        return notes.sorted { a, b in
-            switch sort {
-            case .modifiedDesc: minute(a) != minute(b) ? minute(a) > minute(b) : compareTitles(a.title, b.title)
-            case .modifiedAsc: minute(a) != minute(b) ? minute(a) < minute(b) : compareTitles(a.title, b.title)
-            case .titleAsc: compareTitles(a.title, b.title)
-            case .titleDesc: compareTitles(b.title, a.title)
-            }
-        }
     }
 
     /// Every visible file and folder under [root]. Folders come first; within each group the order
@@ -79,7 +32,7 @@ enum NoteIndex {
     }
 
     private static func entries(in dir: URL, root: URL, sort: NoteSort, showHidden: Bool) -> [Entry] {
-        // Minutes, not milliseconds, as in `notes`: files written together are listed by name.
+        // Minutes, not milliseconds: files written together are listed by name.
         func minute(_ item: (url: URL, isFolder: Bool, modified: Int64)) -> Int64 { item.modified / 60_000 }
         func name(_ item: (url: URL, isFolder: Bool, modified: Int64)) -> String { item.url.lastPathComponent }
         let items = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
@@ -130,22 +83,6 @@ enum NoteIndex {
         a.compare(b, options: [.caseInsensitive, .numeric], range: nil, locale: Locale(identifier: "zh_CN")) == .orderedAscending
     }
 
-    static func visibleFiles(under dir: URL, showHidden: Bool = false) -> [URL] {
-        guard let walker = FileManager.default.enumerator(
-            at: dir,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey]
-        ) else { return [] }
-        var files: [URL] = []
-        while let url = walker.nextObject() as? URL {
-            if isHidden(url.lastPathComponent, showHidden: showHidden) {
-                walker.skipDescendants()
-            } else if isFile(url) {
-                files.append(url)
-            }
-        }
-        return files
-    }
-
     /// Only the folders are resolved (/var vs /private/var), never the file itself: a symlinked note
     /// keeps its own name instead of turning into the path of the file it points at.
     static func relativePath(of url: URL, in root: URL) -> String {
@@ -162,57 +99,8 @@ enum NoteIndex {
         return Int64(date.timeIntervalSince1970 * 1000)
     }
 
-    private static func isFile(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
-    }
-
     private static func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-    }
-
-    private static func readHead(_ url: URL) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 2048)) ?? Data()
-        // A cut in the middle of a character would make the whole buffer undecodable; drop the tail bytes.
-        for drop in 0...3 where data.count >= drop {
-            if let text = String(data: data.dropLast(drop), encoding: .utf8) { return text }
-        }
-        return ""
-    }
-
-    private static let replacements: [(NSRegularExpression, String)] = [
-        (#"!\[\[[^\]]*]]"#, ""),                          // ![[embed]]
-        (#"!\[([^\]]*)]\([^)]*\)"#, "$1"),                // ![alt](image)
-        (#"\[([^\]]*)]\([^)]*\)"#, "$1"),                 // [text](link)
-        (#"\[\[(?:[^\]|]*\|)?([^\]]*)]]"#, "$1"),         // [[link|alias]]
-        (#"\*\*|__|~~|==|`"#, ""),                        // emphasis markers
-    ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
-
-    private static let linePrefix = try! NSRegularExpression(pattern: #"^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?(?:\[[ xX]]\s+)?"#)
-
-    /// The first bit of body text for the note list: no front matter, title line, or Markdown markup.
-    static func preview(_ markdown: String, maxLength: Int = 100) -> String {
-        var lines = markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
-        if lines.first?.trimmingCharacters(in: .whitespaces) == "---" {
-            if let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) {
-                lines = Array(lines[(end + 1)...])
-            } else {
-                lines = []
-            }
-        }
-        lines = Array(lines.drop { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-        if lines.first?.drop(while: { $0 == " " }).hasPrefix("# ") == true { lines.removeFirst() }
-        let text = lines.map { line -> String in
-            var cleaned = linePrefix.stringByReplacingMatches(in: line, range: NSRange(line.startIndex..., in: line), withTemplate: "")
-            for (regex, template) in replacements {
-                cleaned = regex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: template)
-            }
-            return cleaned.trimmingCharacters(in: .whitespaces)
-        }
-        .filter { !$0.isEmpty }
-        .joined(separator: " ")
-        return String(text.prefix(maxLength))
     }
 }
 

@@ -54,7 +54,7 @@ struct Welcome: View {
     }
 }
 
-/// One notebook in three columns: folders | notes | the open note.
+/// One notebook in two columns: the file tree | the open note.
 struct NotebookView: View {
     let notebook: Notebook
     @Binding var addingNotebook: Bool
@@ -64,11 +64,11 @@ struct NotebookView: View {
     @Environment(\.openSettings) private var openSettings
     #endif
     @StateObject private var bridge = EditorBridge()
-    @State private var folder = ""
+    /// The file or folder marked in the tree ("" for none); new items go here. Not saved.
+    @State private var highlighted = ""
     @State private var selection: String?
-    @State private var notes: [NoteIndex.Note]?
-    @State private var tree: [NoteIndex.Entry] = []
-    @State private var total = 0
+    /// nil until the first load, so an empty notebook is not announced before the files are read.
+    @State private var tree: [NoteIndex.Entry]?
     @State private var conflictCount = 0
     @State private var refresh = 0
     @State private var prompt: Prompt?
@@ -78,50 +78,48 @@ struct NotebookView: View {
     @State private var image: URL?
     @State private var toast: Notebooks.SyncMessage?
 
+    /// `newNote` and `newFolder` carry the folder they create in.
     private enum Prompt: Identifiable {
-        case newNote, newFolder, rename(URL)
+        case newNote(String), newFolder(String), rename(URL)
         var id: String {
             switch self {
-            case .newNote: "note"
-            case .newFolder: "folder"
-            case .rename(let url): url.path
+            case .newNote(let folder): "note:\(folder)"
+            case .newFolder(let folder): "folder:\(folder)"
+            case .rename(let url): "rename:\(url.path)"
             }
         }
     }
 
     private var root: URL { notebooks.dir(notebook) }
     private var syncing: Bool { notebooks.isSyncing(notebook) }
-    private var here: URL { folder.isEmpty ? root : root.appendingPathComponent(folder) }
+    private var expanded: Set<String> { notebooks.state.expandedFolders[notebook.id] ?? [] }
+    /// Where a new note or folder goes: the highlighted folder, or the folder of the highlighted file.
+    private var currentFolder: String { FileTree.currentFolder(tree ?? [], highlighted: highlighted) }
 
     private struct LoadKey: Equatable {
-        let folder: String, sort: NoteSort, showHidden: Bool, refresh: Int, revision: Int, syncing: Bool
+        let sort: NoteSort, showHidden: Bool, refresh: Int, revision: Int, syncing: Bool
     }
 
     var body: some View {
         NavigationSplitView {
-            Sidebar(notebook: notebook, tree: tree, total: total, folder: $folder,
-                    onOpenFile: open,
-                    onNewFolder: { prompt = .newFolder },
+            Sidebar(notebook: notebook, tree: tree ?? [], expanded: expanded, highlighted: $highlighted,
+                    conflictCount: conflictCount,
+                    onTap: tap,
+                    onConflicts: { showingConflicts = true },
+                    onNewNote: { prompt = .newNote($0) },
+                    onNewFolder: { prompt = .newFolder($0) },
                     onHistory: { historyPath = $0 },
                     onRename: { prompt = .rename(root.appendingPathComponent($0)) },
                     onDelete: { deleting = root.appendingPathComponent($0) },
                     addingNotebook: $addingNotebook)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-        } content: {
-            NoteList(notebook: notebook, notes: notes, folder: folder, conflictCount: conflictCount, selection: $selection,
-                     onShowAll: { folder = "" },
-                     onConflicts: { showingConflicts = true },
-                     onHistory: { historyPath = $0.path },
-                     onRename: { prompt = .rename($0.url) },
-                     onDelete: { deleting = $0.url })
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             detail
         }
         .navigationTitle(notebook.name)
         .toolbar {
             ToolbarItemGroup {
-                Button { prompt = .newNote } label: { Label("新建笔记", systemImage: "square.and.pencil") }
+                Button { prompt = .newNote(currentFolder) } label: { Label("新建笔记", systemImage: "square.and.pencil") }
                     .help("新建笔记（⌘N）")
                 if syncing {
                     ProgressView().controlSize(.small).help("正在同步…")
@@ -131,19 +129,19 @@ struct NotebookView: View {
                 }
             }
         }
-        .task(id: LoadKey(folder: folder, sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
+        .task(id: LoadKey(sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote }
-        .onReceive(NotificationCenter.default.publisher(for: .newFolder)) { _ in prompt = .newFolder }
+        .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote(currentFolder) }
+        .onReceive(NotificationCenter.default.publisher(for: .newFolder)) { _ in prompt = .newFolder(currentFolder) }
         .onReceive(NotificationCenter.default.publisher(for: .syncNow)) { _ in sync() }
         #if GN_DEBUG_HOOKS
         .onReceive(NotificationCenter.default.publisher(for: .debugCommand)) { note in
             guard let command = note.object as? String else { return }
             if command.hasPrefix("select ") { selection = String(command.dropFirst(7)) }
-            if command.hasPrefix("folder ") { folder = String(command.dropFirst(7)) }
+            if command.hasPrefix("folder ") { highlighted = String(command.dropFirst(7)) }
             if command == "sync" { sync() }
-            if command == "newnote" { prompt = .newNote }
+            if command == "newnote" { prompt = .newNote(currentFolder) }
             if command == "settings" { openSettings() }
         }
         #endif
@@ -220,7 +218,7 @@ struct NotebookView: View {
                     }
                 }
         } else {
-            Text(notes?.isEmpty == true ? "点工具栏上的「新建笔记」写第一篇。" : "选一篇笔记")
+            Text(tree?.isEmpty == true ? "点工具栏上的「新建笔记」写第一篇。" : "选一篇笔记")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -240,21 +238,30 @@ struct NotebookView: View {
 
     private func load() async {
         guard !syncing else { return }
-        let root = root, folder = folder, sort = notebooks.state.fileSort, showHidden = notebooks.state.showHiddenFiles
-        // A folder that was renamed or deleted elsewhere (e.g. by a sync) falls back to all notes.
-        if !folder.isEmpty && !isDirectory(root.appendingPathComponent(folder)) {
-            self.folder = ""
-            return
-        }
-        let (shown, entries, all) = await Task.detached {
-            let shown = NoteIndex.notes(in: root, sort: sort, folder: folder, showHidden: showHidden)
-            let all = folder.isEmpty ? shown.count : NoteIndex.notes(in: root, sort: sort, showHidden: showHidden).count
-            return (shown, NoteIndex.tree(in: root, sort: sort, showHidden: showHidden), all)
-        }.value
-        notes = shown
-        tree = entries
-        total = all
+        let root = root, sort = notebooks.state.fileSort, showHidden = notebooks.state.showHiddenFiles
+        tree = await Task.detached { NoteIndex.tree(in: root, sort: sort, showHidden: showHidden) }.value
         conflictCount = await notebooks.conflicts(notebook).count
+    }
+
+    /// A row tapped in the tree. A folder opens or closes (closing moves the highlight up to its
+    /// parent); a file is highlighted and opened.
+    private func tap(_ entry: NoteIndex.Entry) {
+        if !entry.isFolder {
+            highlighted = entry.path
+            open(entry.path)
+        } else if expanded.contains(entry.path) {
+            notebooks.setExpandedFolders(notebook.id, expanded.subtracting([entry.path]))
+            highlighted = FileTree.parent(entry.path)
+        } else {
+            notebooks.setExpandedFolders(notebook.id, expanded.union([entry.path]))
+            highlighted = entry.path
+        }
+    }
+
+    /// Opens the folders above a new item, so it is visible, and highlights it.
+    private func reveal(_ path: String) {
+        notebooks.setExpandedFolders(notebook.id, expanded.union(FileTree.ancestors(path)))
+        highlighted = path
     }
 
     /// A file picked in the sidebar: pictures open in the viewer; notes and text on the right to edit,
@@ -277,27 +284,29 @@ struct NotebookView: View {
     @ViewBuilder
     private func promptSheet(_ prompt: Prompt) -> some View {
         switch prompt {
-        case .newNote:
+        case .newNote(let folder):
             TextPrompt(title: folder.isEmpty ? "新建笔记" : "在「\(folder.components(separatedBy: "/").last!)」里新建笔记",
                        label: "标题", confirm: "创建", onCancel: { self.prompt = nil }) { name in
                 do {
-                    let file = try NoteFiles.createNote(in: here, name: name)
+                    let file = try NoteFiles.createNote(in: root.appendingPathComponent(folder), name: name)
+                    let path = NoteIndex.relativePath(of: file, in: root)
                     self.prompt = nil
                     refresh += 1
-                    selection = NoteIndex.relativePath(of: file, in: root)
+                    reveal(path)
+                    selection = path
                     return nil
                 } catch {
                     return error.localizedDescription
                 }
             }
-        case .newFolder:
+        case .newFolder(let folder):
             TextPrompt(title: folder.isEmpty ? "新建文件夹" : "在「\(folder.components(separatedBy: "/").last!)」里新建文件夹",
                        label: "文件夹名称", confirm: "创建", onCancel: { self.prompt = nil }) { name in
                 do {
-                    let created = try NoteFiles.createFolder(in: here, name: name)
+                    let created = try NoteFiles.createFolder(in: root.appendingPathComponent(folder), name: name)
                     self.prompt = nil
-                    folder = NoteIndex.relativePath(of: created, in: root)
                     refresh += 1
+                    reveal(NoteIndex.relativePath(of: created, in: root))
                     return nil
                 } catch {
                     return error.localizedDescription
@@ -313,8 +322,9 @@ struct NotebookView: View {
                     let renamed = try NoteFiles.rename(url, to: name)
                     let new = NoteIndex.relativePath(of: renamed, in: root)
                     self.prompt = nil
-                    // Keep showing the renamed folder (or the folder inside it), and the renamed note.
-                    if wasFolder && (folder == old || folder.hasPrefix(old + "/")) { folder = new + folder.dropFirst(old.count) }
+                    // The tree keeps its open folders and highlight under the new name.
+                    notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
+                    highlighted = FileTree.moved(highlighted, old: old, new: new)
                     if selection == old { selection = new }
                     notebooks.commitInBackground(notebook)
                     refresh += 1
@@ -331,7 +341,8 @@ struct NotebookView: View {
         deleting = nil
         let path = NoteIndex.relativePath(of: url, in: root)
         if selection == path || selection?.hasPrefix(path + "/") == true { selection = nil }
-        if folder == path || folder.hasPrefix(path + "/") { folder = "" }
+        notebooks.setExpandedFolders(notebook.id, FileTree.removed(expanded, path: path))
+        if highlighted == path || highlighted.hasPrefix(path + "/") { highlighted = FileTree.parent(path) }
         Task {
             try? await notebooks.run(notebook) { _ in try FileManager.default.removeItem(at: url) }
             await notebooks.commit(notebook)
@@ -376,14 +387,18 @@ private struct NoteDetail: View {
     }
 }
 
-/// Left column: notebook switcher, "全部笔记" and every file and folder, like Obsidian's file explorer.
+/// Left column: notebook switcher, sync status and every file and folder, like Obsidian's file explorer.
 private struct Sidebar: View {
     let notebook: Notebook
     let tree: [NoteIndex.Entry]
-    let total: Int
-    @Binding var folder: String
-    let onOpenFile: (String) -> Void
-    let onNewFolder: () -> Void
+    let expanded: Set<String>
+    /// What is marked: a file or folder path, or "" for nothing.
+    @Binding var highlighted: String
+    let conflictCount: Int
+    let onTap: (NoteIndex.Entry) -> Void
+    let onConflicts: () -> Void
+    let onNewNote: (String) -> Void
+    let onNewFolder: (String) -> Void
     let onHistory: (String) -> Void
     let onRename: (String) -> Void
     let onDelete: (String) -> Void
@@ -391,11 +406,11 @@ private struct Sidebar: View {
 
     @EnvironmentObject private var notebooks: Notebooks
     @Environment(\.openSettings) private var openSettings
-    /// What is highlighted: "" for all notes, or a file or folder path.
-    @State private var highlighted = ""
+
+    private static let indent: CGFloat = 14
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Menu {
                 ForEach(notebooks.state.notebooks) { other in
                     Button { notebooks.setCurrent(other.id) } label: {
@@ -414,101 +429,6 @@ private struct Sidebar: View {
             .padding(.vertical, 8)
             .help("切换笔记本")
 
-            List(selection: Binding(get: { highlighted }, set: { pick($0 ?? "") })) {
-                Label { HStack { Text("全部笔记"); Spacer(); Text("\(total)").foregroundStyle(.secondary) } }
-                    icon: { Image(systemName: "note.text") }
-                    .tag("")
-                Section("文件列表") {
-                    OutlineGroup(tree, children: \.optionalChildren) { entry in
-                        row(entry)
-                            .tag(entry.path)
-                            .contextMenu { menu(entry) }
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .onAppear { highlighted = folder }
-            .onChange(of: folder) { _, value in
-                if entry(at: highlighted)?.isFolder != false || value.isEmpty { highlighted = value }
-            }
-
-            Divider()
-            HStack {
-                Button(action: onNewFolder) { Label("新建文件夹", systemImage: "folder.badge.plus") }
-                    .buttonStyle(.borderless)
-                Spacer()
-            }
-            .padding(10)
-        }
-    }
-
-    private func row(_ entry: NoteIndex.Entry) -> some View {
-        Label {
-            HStack {
-                Text(entry.name).lineLimit(1).truncationMode(.middle)
-                if entry.isFolder {
-                    Spacer()
-                    Text("\(entry.noteCount)").foregroundStyle(.secondary)
-                }
-            }
-        } icon: {
-            Image(systemName: icon(entry))
-        }
-    }
-
-    @ViewBuilder
-    private func menu(_ entry: NoteIndex.Entry) -> some View {
-        if !entry.isFolder && NoteIndex.isEditable(entry.path) {
-            Button("历史版本…") { onHistory(entry.path) }
-        }
-        Button("重命名…") { onRename(entry.path) }
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([notebooks.dir(notebook).appendingPathComponent(entry.path)]) }
-        Divider()
-        Button("删除…", role: .destructive) { onDelete(entry.path) }
-    }
-
-    private func icon(_ entry: NoteIndex.Entry) -> String {
-        if entry.isFolder { return "folder" }
-        if NoteAssets.isImage(entry.path) { return "photo" }
-        return NoteIndex.isEditable(entry.path) ? "doc.text" : "doc"
-    }
-
-    /// A folder narrows the note list; a file opens.
-    private func pick(_ path: String) {
-        highlighted = path
-        if path.isEmpty || entry(at: path)?.isFolder == true {
-            folder = path
-        } else {
-            onOpenFile(path)
-        }
-    }
-
-    private func entry(at path: String, in entries: [NoteIndex.Entry]? = nil) -> NoteIndex.Entry? {
-        for entry in entries ?? tree {
-            if entry.path == path { return entry }
-            if path.hasPrefix(entry.path + "/"), let found = self.entry(at: path, in: entry.children) { return found }
-        }
-        return nil
-    }
-}
-
-/// Middle column: every note (or the chosen folder's), with sort order.
-private struct NoteList: View {
-    let notebook: Notebook
-    let notes: [NoteIndex.Note]?
-    let folder: String
-    let conflictCount: Int
-    @Binding var selection: String?
-    let onShowAll: () -> Void
-    let onConflicts: () -> Void
-    let onHistory: (NoteIndex.Note) -> Void
-    let onRename: (NoteIndex.Note) -> Void
-    let onDelete: (NoteIndex.Note) -> Void
-
-    @EnvironmentObject private var notebooks: Notebooks
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook))
                 if conflictCount > 0 {
@@ -521,12 +441,10 @@ private struct NoteList: View {
                     .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
                 }
                 HStack {
-                    Text("\(folder.isEmpty ? "全部笔记" : folder.components(separatedBy: "/").last!)\(notes.map { " · \($0.count) 篇" } ?? "")")
+                    Text("文件列表")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                     Spacer()
-                    if !folder.isEmpty { Button("看全部", action: onShowAll).buttonStyle(.link) }
                     Menu {
                         Picker("排序", selection: Binding(get: { notebooks.state.fileSort }, set: { notebooks.setFileSort($0) })) {
                             ForEach(NoteSort.allCases) { Text($0.label).tag($0) }
@@ -543,49 +461,75 @@ private struct NoteList: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            if let notes, notes.isEmpty {
-                VStack(spacing: 8) {
-                    Text(folder.isEmpty ? "这里还没有笔记" : "这个文件夹里还没有笔记").font(.headline)
-                    Text("点工具栏上的「新建笔记」写第一篇。\n写完会自动保存，点「同步」就会保存到云端。")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+            // Drawn by hand rather than with List or OutlineGroup: List(selection:) says nothing when
+            // the selected row is tapped again (a folder could not be closed), and OutlineGroup's
+            // open state cannot be controlled from outside.
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(FileTree.visibleRows(tree, expanded: expanded)) { row in
+                        self.row(row)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(notes ?? [], selection: $selection) { note in
-                    NoteRow(note: note, folder: folder)
-                        .tag(note.path)
-                        .contextMenu {
-                            Button("历史版本…") { onHistory(note) }
-                            Button("重命名…") { onRename(note) }
-                            Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
-                            Divider()
-                            Button("删除…", role: .destructive) { onDelete(note) }
-                        }
-                }
-                .listStyle(.inset)
+                .padding(.horizontal, 6)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { highlighted = "" }
+
+            Divider()
+            HStack {
+                Button { onNewFolder(FileTree.currentFolder(tree, highlighted: highlighted)) } label: {
+                    Label("新建文件夹", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+            }
+            .padding(10)
         }
     }
-}
 
-private struct NoteRow: View {
-    let note: NoteIndex.Note
-    let folder: String
-
-    var body: some View {
-        // Where the note is, relative to the folder being shown.
-        let location = folder.isEmpty ? note.folder : String(note.folder.dropFirst(min(note.folder.count, folder.count + 1)))
-        VStack(alignment: .leading, spacing: 3) {
-            Text(note.title).font(.headline).lineLimit(1)
-            if !note.preview.isEmpty {
-                Text(note.preview).foregroundStyle(.secondary).lineLimit(2)
-            }
-            Text(location.isEmpty ? friendlyTime(note.modified) : "\(location) · \(friendlyTime(note.modified))")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+    private func row(_ row: FileTree.Row) -> some View {
+        let entry = row.entry
+        return HStack(spacing: 4) {
+            // Every folder shows an arrow, empty ones too; files keep the space so names line up.
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(expanded.contains(entry.path) ? 90 : 0))
+                .opacity(entry.isFolder ? 1 : 0)
+                .frame(width: 12)
+            Image(systemName: icon(entry)).frame(width: 18)
+            Text(entry.name).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            if entry.isFolder { Text("\(entry.noteCount)").foregroundStyle(.secondary) }
         }
+        .padding(.leading, CGFloat(row.depth) * Self.indent + 4)
+        .padding(.trailing, 6)
         .padding(.vertical, 4)
+        .background(highlighted == entry.path ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { onTap(entry) }
+        .contextMenu { menu(entry) }
+    }
+
+    @ViewBuilder
+    private func menu(_ entry: NoteIndex.Entry) -> some View {
+        if entry.isFolder {
+            Button("新建笔记…") { onNewNote(entry.path) }
+            Button("新建文件夹…") { onNewFolder(entry.path) }
+            Divider()
+        }
+        if !entry.isFolder && NoteIndex.isEditable(entry.path) {
+            Button("历史版本…") { onHistory(entry.path) }
+        }
+        Button("重命名…") { onRename(entry.path) }
+        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([notebooks.dir(notebook).appendingPathComponent(entry.path)]) }
+        Divider()
+        Button("删除…", role: .destructive) { onDelete(entry.path) }
+    }
+
+    private func icon(_ entry: NoteIndex.Entry) -> String {
+        if entry.isFolder { return "folder" }
+        if NoteAssets.isImage(entry.path) { return "photo" }
+        return NoteIndex.isEditable(entry.path) ? "doc.text" : "doc"
     }
 }
