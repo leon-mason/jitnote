@@ -79,7 +79,7 @@
   - 只有用户真正编辑后才回写文件。
   - `editor/test/roundtrip.test.js` 锁定以上行为（`npm test`）。已知仍会变化的：引用式链接会变成行内链接；未对齐的表格第一次保存会被对齐。
 - 宿主接口（各平台一致）：
-  - 宿主 → 编辑器：`window.JitnoteEditor.load(markdown, { readonly, baseUrl })`、`window.JitnoteEditor.getMarkdown()`
+  - 宿主 → 编辑器：`window.JitnoteEditor.load(markdown, { readonly, baseUrl })`、`window.JitnoteEditor.getMarkdown()`、`window.JitnoteEditor.setReadonly(readonly)`（不重新加载，直接在编辑和只读间切换）
   - 编辑器 → 宿主：`window.JitnoteHost.onReady()`、`window.JitnoteHost.onChange(markdown)`（防抖，仅在真实编辑后）
 - 只有用户真正改过才回写文件；只是打开、看完、返回，不会产生任何修改或提交。
 

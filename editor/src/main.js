@@ -3,6 +3,7 @@
 // Host contract (Android today, other clients later):
 //   host → editor   window.JitnoteEditor.load(markdown, { readonly, baseUrl, notebookUrl })
 //                   window.JitnoteEditor.getMarkdown()  → current Markdown
+//                   window.JitnoteEditor.setReadonly(readonly)  → switch editing / read-only without reloading
 //   editor → host   window.JitnoteHost.onReady()
 //                   window.JitnoteHost.onChange(markdown)   (debounced, only after real edits)
 //                   window.JitnoteHost.resolveFile(path)    → notebook-relative path or "" (sync)
@@ -54,6 +55,9 @@ let crepe = null
 // YAML front matter is not part of CommonMark; keep it aside so it survives untouched.
 let frontMatter = ''
 let changeTimer = null
+// The latest read-only wish from the host; applied once the editor exists, and again on every change.
+let wantReadonly = false
+let created = false
 
 function splitFrontMatter(markdown) {
   const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(markdown)
@@ -98,7 +102,22 @@ function emitChange() {
   changeTimer = setTimeout(() => host?.onChange(getMarkdown()), 400)
 }
 
+function applyReadonly() {
+  if (created) crepe.setReadonly(wantReadonly)
+  toolbar.hidden = wantReadonly
+  document.body.classList.toggle('with-toolbar', !wantReadonly)
+  // Drop focus so the on-screen keyboard closes and no caret is left in a read-only note.
+  if (wantReadonly) document.activeElement?.blur?.()
+}
+
+function setReadonly(readonly) {
+  wantReadonly = Boolean(readonly)
+  applyReadonly()
+}
+
 async function load(markdown, options = {}) {
+  wantReadonly = Boolean(options.readonly)
+  created = false
   // Not a <base> tag: that would also re-resolve the editor's own stylesheet.
   images.configure(options)
   const [front, body] = splitFrontMatter(markdown ?? '')
@@ -138,9 +157,8 @@ async function load(markdown, options = {}) {
     })
   })
   await crepe.create()
-  crepe.setReadonly(Boolean(options.readonly))
-  toolbar.hidden = Boolean(options.readonly)
-  document.body.classList.toggle('with-toolbar', !options.readonly)
+  created = true
+  applyReadonly()
 }
 
 function fitToWindow() {
@@ -231,7 +249,7 @@ for (const button of buttons) {
 
 // ------------------------------------------------------------------ host bridge
 
-window.JitnoteEditor = { load, getMarkdown }
+window.JitnoteEditor = { load, getMarkdown, setReadonly }
 
 if (host) {
   host.onReady()
