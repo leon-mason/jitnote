@@ -76,7 +76,7 @@ fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     val state by notebooks.state.collectAsStateWithLifecycle()
     val notebook = notebooks.current(state)
     if (notebook != null) {
-        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.noteSort, state.showHiddenFiles)
+        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.fileSort, state.showHiddenFiles)
         return
     }
     Scaffold(
@@ -145,7 +145,7 @@ private fun NotesHome(
             }
             val shown = NoteIndex.notes(root, sort, folder, showHidden)
             notes = shown
-            tree = NoteIndex.tree(root, showHidden)
+            tree = NoteIndex.tree(root, sort, showHidden)
             total = if (folder.isEmpty()) shown.size else NoteIndex.notes(root, sort, showHidden = showHidden).size
         }
         conflictCount = notebooks.conflicts(notebook).size
@@ -238,7 +238,7 @@ private fun NotesHome(
                         count = list?.size,
                         sort = sort,
                         onClearFolder = if (folder.isEmpty()) null else ({ nav.homeFolder.remove(notebook.id) }),
-                        onSort = notebooks::setSort,
+                        onSort = notebooks::setFileSort,
                     )
                 }
                 if (list != null && list.isEmpty()) {

@@ -9,8 +9,8 @@ import java.util.Locale
 enum class NoteSort(val label: String) {
     MODIFIED_DESC("修改时间（新的在前）"),
     MODIFIED_ASC("修改时间（旧的在前）"),
-    TITLE_ASC("标题（A → Z）"),
-    TITLE_DESC("标题（Z → A）"),
+    TITLE_ASC("名称（A → Z）"),
+    TITLE_DESC("名称（Z → A）"),
 }
 
 /**
@@ -38,6 +38,7 @@ object NoteIndex {
         val children: List<Entry>,
         /** Notes in a folder, including its subfolders; 0 for files. */
         val noteCount: Int,
+        val modified: Long,
     )
 
     private val noteExtensions = setOf("md", "markdown", "txt")
@@ -81,23 +82,39 @@ object NoteIndex {
         )
     }
 
-    /** Every visible file and folder under [root]: folders first, then files, each by name. */
-    fun tree(root: File, showHidden: Boolean = false): List<Entry> = entries(root, root, showHidden)
+    /**
+     * Every visible file and folder under [root]. Folders come first; within each group the order
+     * follows [sort], except that folders stay sorted by name when sorting by modification time.
+     */
+    fun tree(root: File, sort: NoteSort = NoteSort.TITLE_ASC, showHidden: Boolean = false): List<Entry> =
+        entries(root, root, sort, showHidden)
 
-    private fun entries(root: File, dir: File, showHidden: Boolean): List<Entry> =
-        (dir.listFiles() ?: emptyArray())
+    private fun entries(root: File, dir: File, sort: NoteSort, showHidden: Boolean): List<Entry> {
+        val byName = compareBy(collator) { file: File -> file.name }
+        // Minutes, not milliseconds, for the same reason as in [notes].
+        val minute = { file: File -> file.lastModified() / 60_000 }
+        val folders = if (sort == NoteSort.TITLE_DESC) byName.reversed() else byName
+        val files = when (sort) {
+            NoteSort.MODIFIED_DESC -> compareByDescending(minute).then(byName)
+            NoteSort.MODIFIED_ASC -> compareBy(minute).then(byName)
+            NoteSort.TITLE_ASC -> byName
+            NoteSort.TITLE_DESC -> byName.reversed()
+        }
+        return (dir.listFiles() ?: emptyArray())
             .filter { !isHidden(it.name, showHidden) }
-            .sortedWith(compareBy<File> { !it.isDirectory }.thenComparing(compareBy(collator) { it.name }))
+            .sortedWith(compareBy<File> { !it.isDirectory }.thenComparing { a, b -> (if (a.isDirectory) folders else files).compare(a, b) })
             .map { child ->
-                val children = if (child.isDirectory) entries(root, child, showHidden) else emptyList()
+                val children = if (child.isDirectory) entries(root, child, sort, showHidden) else emptyList()
                 Entry(
                     path = child.relativeTo(root).invariantSeparatorsPath,
                     name = child.name,
                     isFolder = child.isDirectory,
                     children = children,
                     noteCount = if (child.isDirectory) children.sumOf { if (it.isFolder) it.noteCount else if (isNote(File(child, it.name))) 1 else 0 } else 0,
+                    modified = child.lastModified(),
                 )
             }
+    }
 
     private fun visible(dir: File, showHidden: Boolean): Sequence<File> =
         dir.walkTopDown().onEnter { it == dir || !isHidden(it.name, showHidden) }.filter { !isHidden(it.name, showHidden) }

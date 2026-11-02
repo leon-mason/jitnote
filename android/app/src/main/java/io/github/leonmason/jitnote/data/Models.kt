@@ -39,13 +39,22 @@ data class Notebook(
     val lastSyncError: String? = null,
 )
 
+/** Whether a note opens for editing or read-only. */
+@Serializable
+enum class ViewMode { EDIT, PREVIEW }
+
 @Serializable
 data class AppState(
     val accounts: List<Account> = emptyList(),
     val notebooks: List<Notebook> = emptyList(),
     /** The notebook the home screen shows; the first one when unset or removed. */
     val currentNotebookId: String? = null,
-    val noteSort: NoteSort = NoteSort.MODIFIED_DESC,
+    /** How the file tree orders files; folders stay by name unless sorting by name descending. */
+    val fileSort: NoteSort = NoteSort.TITLE_ASC,
+    /** Open folders in the file tree, as paths per notebook id. */
+    val expandedFolders: Map<String, Set<String>> = emptyMap(),
+    /** How a note opens: editing, or read-only until the user switches. */
+    val defaultViewMode: ViewMode = ViewMode.EDIT,
     /** List files and folders starting with "." (never .git), see [NoteIndex.isHidden]. */
     val showHiddenFiles: Boolean = false,
     /** Last successful check for a new app version, see [AppUpdates]. */

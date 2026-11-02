@@ -179,14 +179,19 @@ class Notebooks(
 
     fun setCurrent(notebookId: String) = store.update { it.copy(currentNotebookId = notebookId) }
 
-    fun setSort(sort: NoteSort) = store.update { it.copy(noteSort = sort) }
+    fun setFileSort(sort: NoteSort) = store.update { it.copy(fileSort = sort) }
+
+    fun setExpandedFolders(notebookId: String, paths: Set<String>) =
+        store.update { it.copy(expandedFolders = it.expandedFolders + (notebookId to paths)) }
+
+    fun setDefaultViewMode(mode: ViewMode) = store.update { it.copy(defaultViewMode = mode) }
 
     fun setShowHiddenFiles(show: Boolean) = store.update { it.copy(showHiddenFiles = show) }
 
     /** Removes the notebook from this device only. The cloud repository is left alone. */
     suspend fun deleteLocal(notebook: Notebook) = withContext(Dispatchers.IO) {
         withLock(notebook) { dir(notebook).deleteRecursively() }
-        store.update { s -> s.copy(notebooks = s.notebooks.filterNot { it.id == notebook.id }) }
+        store.update { s -> s.copy(notebooks = s.notebooks.filterNot { it.id == notebook.id }, expandedFolders = s.expandedFolders - notebook.id) }
         locks.remove(notebook.id)
     }
 

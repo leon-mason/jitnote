@@ -102,6 +102,27 @@ class NoteIndexTest {
     }
 
     @Test
+    fun treeSortsByNameBothWays() {
+        write("b.md"); write("a.md"); write("乙/x.md"); write("甲/x.md")
+        assertEquals(listOf("甲", "乙", "a.md", "b.md"), NoteIndex.tree(tmp.root, NoteSort.TITLE_ASC).map { it.name })
+        assertEquals(listOf("乙", "甲", "b.md", "a.md"), NoteIndex.tree(tmp.root, NoteSort.TITLE_DESC).map { it.name })
+    }
+
+    @Test
+    fun treeSortsFilesByMinuteAndKeepsFoldersByName() {
+        write("a.md", modified = 60_000_000); write("b.md", modified = 180_000_000); write("c.md", modified = 120_000_000)
+        write("乙/x.md"); write("甲/x.md")
+        assertEquals(listOf("甲", "乙", "b.md", "c.md", "a.md"), NoteIndex.tree(tmp.root, NoteSort.MODIFIED_DESC).map { it.name })
+        assertEquals(listOf("甲", "乙", "a.md", "c.md", "b.md"), NoteIndex.tree(tmp.root, NoteSort.MODIFIED_ASC).map { it.name })
+    }
+
+    @Test
+    fun treeBreaksTiesInTheSameMinuteByName() {
+        write("b.md", modified = 60_000_000); write("a.md", modified = 60_030_000)
+        assertEquals(listOf("a.md", "b.md"), NoteIndex.tree(tmp.root, NoteSort.MODIFIED_DESC).map { it.name })
+    }
+
+    @Test
     fun previewSkipsFrontMatterTitleAndMarkup() {
         assertEquals(
             "下周上线检查更新功能 需要先发 一个版本",
