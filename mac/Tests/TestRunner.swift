@@ -31,6 +31,7 @@ enum TestRunner {
         let suites: [(String, [TestCase])] = [
             ("NotebookGit", NotebookGitTests.all),
             ("NoteIndex", NoteIndexTests.all),
+            ("FileTree", FileTreeTests.all),
             ("NoteAssets", NoteAssetsTests.all),
             ("AppUpdates", AppUpdatesTests.all),
             ("HostingApi", HostingApiTests.all),

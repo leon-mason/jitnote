@@ -54,10 +54,16 @@ enum NoteSort: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .modifiedDesc: "修改时间（新的在前）"
         case .modifiedAsc: "修改时间（旧的在前）"
-        case .titleAsc: "标题（A → Z）"
-        case .titleDesc: "标题（Z → A）"
+        case .titleAsc: "名称（A → Z）"
+        case .titleDesc: "名称（Z → A）"
         }
     }
+}
+
+/// How a note opens: in the editor, or read-only.
+enum ViewMode: String, Codable {
+    case edit = "EDIT"
+    case preview = "PREVIEW"
 }
 
 /// The app's own small state, kept as one JSON file (same fields as on Android, minus the token).
@@ -66,7 +72,10 @@ struct AppState: Codable, Equatable {
     var notebooks: [Notebook] = []
     /// The notebook the main window shows; the first one when unset or removed.
     var currentNotebookId: String?
-    var noteSort: NoteSort = .modifiedDesc
+    var fileSort: NoteSort = .titleAsc
+    /// Open folders of the file tree, per notebook id.
+    var expandedFolders: [String: Set<String>] = [:]
+    var defaultViewMode: ViewMode = .edit
     /// List files and folders starting with "." (never .git), see `NoteIndex.isHidden`.
     var showHiddenFiles = false
     /// Last successful check for a new app version, see `AppUpdates`.
@@ -83,7 +92,9 @@ struct AppState: Codable, Equatable {
         accounts = try c.decodeIfPresent([Account].self, forKey: .accounts) ?? []
         notebooks = try c.decodeIfPresent([Notebook].self, forKey: .notebooks) ?? []
         currentNotebookId = try c.decodeIfPresent(String.self, forKey: .currentNotebookId)
-        noteSort = (try? c.decodeIfPresent(NoteSort.self, forKey: .noteSort)) ?? .modifiedDesc
+        fileSort = (try? c.decodeIfPresent(NoteSort.self, forKey: .fileSort)) ?? .titleAsc
+        expandedFolders = try c.decodeIfPresent([String: Set<String>].self, forKey: .expandedFolders) ?? [:]
+        defaultViewMode = (try? c.decodeIfPresent(ViewMode.self, forKey: .defaultViewMode)) ?? .edit
         showHiddenFiles = try c.decodeIfPresent(Bool.self, forKey: .showHiddenFiles) ?? false
         lastUpdateCheckAt = try c.decodeIfPresent(Int64.self, forKey: .lastUpdateCheckAt)
     }

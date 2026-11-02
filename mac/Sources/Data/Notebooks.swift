@@ -40,7 +40,13 @@ final class Notebooks: ObservableObject {
 
     func setCurrent(_ id: String) { update { $0.currentNotebookId = id } }
 
-    func setSort(_ sort: NoteSort) { update { $0.noteSort = sort } }
+    func setFileSort(_ sort: NoteSort) { update { $0.fileSort = sort } }
+
+    func setExpandedFolders(_ notebookId: String, _ paths: Set<String>) {
+        update { $0.expandedFolders[notebookId] = paths }
+    }
+
+    func setDefaultViewMode(_ mode: ViewMode) { update { $0.defaultViewMode = mode } }
 
     func setShowHiddenFiles(_ show: Bool) { update { $0.showHiddenFiles = show } }
 
@@ -169,7 +175,10 @@ final class Notebooks: ObservableObject {
     func deleteLocal(_ notebook: Notebook) async {
         let folder = dir(notebook)
         try? await run(notebook) { _ in try? FileManager.default.removeItem(at: folder) }
-        update { s in s.notebooks.removeAll { $0.id == notebook.id } }
+        update { s in
+            s.notebooks.removeAll { $0.id == notebook.id }
+            s.expandedFolders[notebook.id] = nil
+        }
         queues[notebook.id] = nil
     }
 

@@ -131,7 +131,7 @@ struct NotebookView: View {
                 }
             }
         }
-        .task(id: LoadKey(folder: folder, sort: notebooks.state.noteSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
+        .task(id: LoadKey(folder: folder, sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
         }
         .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote }
@@ -240,7 +240,7 @@ struct NotebookView: View {
 
     private func load() async {
         guard !syncing else { return }
-        let root = root, folder = folder, sort = notebooks.state.noteSort, showHidden = notebooks.state.showHiddenFiles
+        let root = root, folder = folder, sort = notebooks.state.fileSort, showHidden = notebooks.state.showHiddenFiles
         // A folder that was renamed or deleted elsewhere (e.g. by a sync) falls back to all notes.
         if !folder.isEmpty && !isDirectory(root.appendingPathComponent(folder)) {
             self.folder = ""
@@ -249,7 +249,7 @@ struct NotebookView: View {
         let (shown, entries, all) = await Task.detached {
             let shown = NoteIndex.notes(in: root, sort: sort, folder: folder, showHidden: showHidden)
             let all = folder.isEmpty ? shown.count : NoteIndex.notes(in: root, sort: sort, showHidden: showHidden).count
-            return (shown, NoteIndex.tree(in: root, showHidden: showHidden), all)
+            return (shown, NoteIndex.tree(in: root, sort: sort, showHidden: showHidden), all)
         }.value
         notes = shown
         tree = entries
@@ -419,7 +419,7 @@ private struct Sidebar: View {
                     icon: { Image(systemName: "note.text") }
                     .tag("")
                 Section("文件列表") {
-                    OutlineGroup(tree, children: \.children) { entry in
+                    OutlineGroup(tree, children: \.optionalChildren) { entry in
                         row(entry)
                             .tag(entry.path)
                             .contextMenu { menu(entry) }
@@ -486,7 +486,7 @@ private struct Sidebar: View {
     private func entry(at path: String, in entries: [NoteIndex.Entry]? = nil) -> NoteIndex.Entry? {
         for entry in entries ?? tree {
             if entry.path == path { return entry }
-            if path.hasPrefix(entry.path + "/"), let found = self.entry(at: path, in: entry.children ?? []) { return found }
+            if path.hasPrefix(entry.path + "/"), let found = self.entry(at: path, in: entry.children) { return found }
         }
         return nil
     }
@@ -528,7 +528,7 @@ private struct NoteList: View {
                     Spacer()
                     if !folder.isEmpty { Button("看全部", action: onShowAll).buttonStyle(.link) }
                     Menu {
-                        Picker("排序", selection: Binding(get: { notebooks.state.noteSort }, set: { notebooks.setSort($0) })) {
+                        Picker("排序", selection: Binding(get: { notebooks.state.fileSort }, set: { notebooks.setFileSort($0) })) {
                             ForEach(NoteSort.allCases) { Text($0.label).tag($0) }
                         }
                         .pickerStyle(.inline)

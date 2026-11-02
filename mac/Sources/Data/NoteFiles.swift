@@ -21,12 +21,15 @@ enum NoteIndex {
         let path: String
         let name: String
         let isFolder: Bool
-        /// Contents of a folder; nil for files and empty folders, so `OutlineGroup` shows no disclosure arrow.
-        let children: [Entry]?
+        /// Contents of a folder; empty for files.
+        let children: [Entry]
         /// Notes in a folder, including its subfolders; 0 for files.
         let noteCount: Int
+        let modified: Int64
 
         var id: String { path }
+        /// Temporary, for `OutlineGroup` (it wants nil to hide the disclosure arrow); goes with the sidebar rewrite.
+        var optionalChildren: [Entry]? { children.isEmpty ? nil : children }
     }
 
     static let noteExtensions: Set<String> = ["md", "markdown", "txt"]
@@ -69,22 +72,38 @@ enum NoteIndex {
         }
     }
 
-    /// Every visible file and folder under [root]: folders first, then files, each by name.
-    static func tree(in root: URL, showHidden: Bool = false) -> [Entry] { entries(in: root, root: root, showHidden: showHidden) }
+    /// Every visible file and folder under [root]. Folders come first; within each group the order
+    /// follows [sort], except that folders stay sorted by name when sorting by modification time.
+    static func tree(in root: URL, sort: NoteSort = .titleAsc, showHidden: Bool = false) -> [Entry] {
+        entries(in: root, root: root, sort: sort, showHidden: showHidden)
+    }
 
-    private static func entries(in dir: URL, root: URL, showHidden: Bool) -> [Entry] {
+    private static func entries(in dir: URL, root: URL, sort: NoteSort, showHidden: Bool) -> [Entry] {
+        // Minutes, not milliseconds, as in `notes`: files written together are listed by name.
+        func minute(_ item: (url: URL, isFolder: Bool, modified: Int64)) -> Int64 { item.modified / 60_000 }
+        func name(_ item: (url: URL, isFolder: Bool, modified: Int64)) -> String { item.url.lastPathComponent }
         let items = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
             .filter { !isHidden($0.lastPathComponent, showHidden: showHidden) }
-            .map { (url: $0, isFolder: isDirectory($0)) }
-            .sorted { a, b in a.isFolder != b.isFolder ? a.isFolder : compareTitles(a.url.lastPathComponent, b.url.lastPathComponent) }
+            .map { (url: $0, isFolder: isDirectory($0), modified: modified($0)) }
+            .sorted { a, b in
+                if a.isFolder != b.isFolder { return a.isFolder }
+                if a.isFolder { return sort == .titleDesc ? compareTitles(name(b), name(a)) : compareTitles(name(a), name(b)) }
+                switch sort {
+                case .modifiedDesc: return minute(a) != minute(b) ? minute(a) > minute(b) : compareTitles(name(a), name(b))
+                case .modifiedAsc: return minute(a) != minute(b) ? minute(a) < minute(b) : compareTitles(name(a), name(b))
+                case .titleAsc: return compareTitles(name(a), name(b))
+                case .titleDesc: return compareTitles(name(b), name(a))
+                }
+            }
         return items.map { item in
-            let children = item.isFolder ? entries(in: item.url, root: root, showHidden: showHidden) : []
+            let children = item.isFolder ? entries(in: item.url, root: root, sort: sort, showHidden: showHidden) : []
             return Entry(
                 path: relativePath(of: item.url, in: root),
                 name: item.url.lastPathComponent.precomposedStringWithCanonicalMapping,
                 isFolder: item.isFolder,
-                children: children.isEmpty ? nil : children,
-                noteCount: item.isFolder ? countNotes(children) : 0
+                children: children,
+                noteCount: item.isFolder ? countNotes(children) : 0,
+                modified: item.modified
             )
         }
     }

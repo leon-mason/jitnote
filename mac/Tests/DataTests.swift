@@ -69,16 +69,34 @@ enum NoteIndexTests {
             let meetings = tree[1]
             try expect(meetings.isFolder)
             try expectEqual(meetings.noteCount, 4)
-            try expectEqual(meetings.children!.map(\.name), ["2025", "2026", "议程.md"])
-            try expectEqual(meetings.children![1].path, "会议/2026")
-            try expectEqual(meetings.children![1].noteCount, 2)
-            try expectEqual(meetings.children![2].path, "会议/议程.md")
-            try expect(!meetings.children![2].isFolder)
-            try expect(meetings.children![2].children == nil)
-            try expectEqual(tree[0].children!.map(\.name), ["cat.png"])
+            try expectEqual(meetings.children.map(\.name), ["2025", "2026", "议程.md"])
+            try expectEqual(meetings.children[1].path, "会议/2026")
+            try expectEqual(meetings.children[1].noteCount, 2)
+            try expectEqual(meetings.children[2].path, "会议/议程.md")
+            try expect(!meetings.children[2].isFolder)
+            try expect(meetings.children[2].children.isEmpty)
+            try expectEqual(tree[0].children.map(\.name), ["cat.png"])
             try expectEqual(tree[0].noteCount, 0)
-            try expect(tree[3].children == nil)
-            try expectEqual(tree[2].children![0].children![0].children!.map(\.name), ["r.md"])
+            try expect(tree[3].children.isEmpty)
+            try expectEqual(tree[2].children[0].children[0].children.map(\.name), ["r.md"])
+        },
+
+        TestCase("treeSortsByNameBothWays") { root in
+            try write(root, "b.md"); try write(root, "a.md"); try write(root, "乙/x.md"); try write(root, "甲/x.md")
+            try expectEqual(NoteIndex.tree(in: root, sort: .titleAsc).map(\.name), ["甲", "乙", "a.md", "b.md"])
+            try expectEqual(NoteIndex.tree(in: root, sort: .titleDesc).map(\.name), ["乙", "甲", "b.md", "a.md"])
+        },
+
+        TestCase("treeSortsFilesByMinuteAndKeepsFoldersByName") { root in
+            try write(root, "a.md", modified: 60_000); try write(root, "b.md", modified: 180_000); try write(root, "c.md", modified: 120_000)
+            try write(root, "乙/x.md"); try write(root, "甲/x.md")
+            try expectEqual(NoteIndex.tree(in: root, sort: .modifiedDesc).map(\.name), ["甲", "乙", "b.md", "c.md", "a.md"])
+            try expectEqual(NoteIndex.tree(in: root, sort: .modifiedAsc).map(\.name), ["甲", "乙", "a.md", "c.md", "b.md"])
+        },
+
+        TestCase("treeBreaksTiesInTheSameMinuteByName") { root in
+            try write(root, "b.md", modified: 60_000); try write(root, "a.md", modified: 60_030)
+            try expectEqual(NoteIndex.tree(in: root, sort: .modifiedDesc).map(\.name), ["a.md", "b.md"])
         },
 
         TestCase("hiddenFilesOnlyWhenAskedAndNeverGit") { root in
@@ -286,6 +304,88 @@ enum HostingApiTests {
             try expect(RepoNames.fromName("读书笔记").hasPrefix("notes-"))
             try expect(RepoNames.isValid("notes-ab12"))
             try expect(!RepoNames.isValid("1notes"))
+        },
+    ]
+}
+
+enum FileTreeTests {
+    private static func file(_ path: String) -> NoteIndex.Entry {
+        NoteIndex.Entry(path: path, name: String(path.split(separator: "/").last ?? ""), isFolder: false, children: [], noteCount: 0, modified: 0)
+    }
+
+    private static func folder(_ path: String, _ children: NoteIndex.Entry...) -> NoteIndex.Entry {
+        NoteIndex.Entry(path: path, name: String(path.split(separator: "/").last ?? ""), isFolder: true, children: children, noteCount: 0, modified: 0)
+    }
+
+    private static let tree = [
+        folder("会议", folder("会议/2026", file("会议/2026/周会.md"))),
+        folder("会议记录"),
+        file("a.md"),
+    ]
+
+    static let all: [TestCase] = [
+        TestCase("visibleRowsOnlyShowOpenFolders") { _ in
+            let rows = FileTree.visibleRows(tree, expanded: ["会议"])
+            try expectEqual(rows.map(\.entry.name), ["会议", "2026", "会议记录", "a.md"])
+            try expectEqual(rows.map(\.depth), [0, 1, 0, 0])
+        },
+
+        TestCase("visibleRowsIgnoreStaleExpandedPaths") { _ in
+            let rows = FileTree.visibleRows(tree, expanded: ["不存在/的"])
+            try expectEqual(rows.map(\.entry.name), ["会议", "会议记录", "a.md"])
+        },
+
+        TestCase("currentFolderOfAFolderIsItself") { _ in
+            try expectEqual(FileTree.currentFolder(tree, highlighted: "会议/2026"), "会议/2026")
+        },
+
+        TestCase("currentFolderOfAFileIsItsParent") { _ in
+            try expectEqual(FileTree.currentFolder(tree, highlighted: "会议/2026/周会.md"), "会议/2026")
+            try expectEqual(FileTree.currentFolder(tree, highlighted: "a.md"), "")
+        },
+
+        TestCase("currentFolderFallsBackToRootWhenMissing") { _ in
+            try expectEqual(FileTree.currentFolder(tree, highlighted: "已删除/x.md"), "")
+            try expectEqual(FileTree.currentFolder(tree, highlighted: ""), "")
+        },
+
+        TestCase("parentAndAncestors") { _ in
+            try expectEqual(FileTree.parent("会议/2026"), "会议")
+            try expectEqual(FileTree.parent("会议"), "")
+            try expectEqual(FileTree.ancestors("会议/2026/周会.md"), ["会议", "会议/2026"])
+        },
+
+        TestCase("renameMovesTheFolderAndWhatIsInside") { _ in
+            try expectEqual(FileTree.renamed(["会议", "会议/2026", "b"], old: "会议", new: "工作"), ["工作", "工作/2026", "b"])
+        },
+
+        TestCase("renameDoesNotTouchSimilarNames") { _ in
+            try expectEqual(FileTree.renamed(["会议", "会议记录"], old: "会议", new: "工作"), ["工作", "会议记录"])
+            try expectEqual(FileTree.moved("会议记录/x.md", old: "会议", new: "工作"), "会议记录/x.md")
+        },
+
+        TestCase("removeDropsTheFolderAndWhatIsInside") { _ in
+            try expectEqual(FileTree.removed(["会议", "会议/2026", "会议记录"], path: "会议"), ["会议记录"])
+        },
+
+        TestCase("oldStateFileKeepsAccountsAndNotebooks") { _ in
+            let json = #"""
+            {
+              "accounts": [{"id":"a1","provider":"GITHUB","login":"me","email":"me@example.com","createdAt":1}],
+              "notebooks": [{"id":"n1","name":"笔记","accountId":"a1","remoteUrl":"https://github.com/me/notes.git","dir":"notes","createdAt":2}],
+              "currentNotebookId": "n1",
+              "noteSort": "MODIFIED_DESC",
+              "showHiddenFiles": true
+            }
+            """#
+            let state = try JSONDecoder().decode(AppState.self, from: Data(json.utf8))
+            try expectEqual(state.accounts.count, 1)
+            try expectEqual(state.notebooks.count, 1)
+            try expectEqual(state.currentNotebookId, "n1")
+            try expect(state.showHiddenFiles)
+            try expectEqual(state.fileSort, .titleAsc)
+            try expectEqual(state.defaultViewMode, .edit)
+            try expectEqual(state.expandedFolders, [:])
         },
     ]
 }
