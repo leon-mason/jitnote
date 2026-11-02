@@ -148,6 +148,7 @@ struct NotebookView: View {
             if command == "sync" { sync() }
             if command == "newnote" { prompt = .newNote(currentFolder) }
             if command == "settings" { openSettings() }
+            debug(command)
         }
         #endif
         .onReceive(NotificationCenter.default.publisher(for: .saveNow)) { _ in
@@ -235,6 +236,36 @@ struct NotebookView: View {
         }
     }
 
+    #if GN_DEBUG_HOOKS
+    /// Debug commands that go through the same handlers as the interface (see DebugHooks.swift).
+    private func debug(_ command: String) {
+        let words = command.split(separator: " ", maxSplits: 2).map(String.init)
+        func entry(_ path: String) -> NoteIndex.Entry? { FileTree.find(tree ?? [], path: path) }
+        switch words.first {
+        case "tap": if words.count > 1, let found = entry(words[1]) { tap(found) }
+        case "mode": if selection.map(isMarkdown) == true { toggleViewMode() }
+        case "mknote": if words.count > 1 { NSLog("debug mknote: \(createNote(named: words[1], in: currentFolder) ?? "ok")") }
+        case "mkfolder": if words.count > 1 { NSLog("debug mkfolder: \(createFolder(named: words[1], in: currentFolder) ?? "ok")") }
+        case "rename": if words.count > 2 { NSLog("debug rename: \(rename(root.appendingPathComponent(words[1]), to: words[2]) ?? "ok")") }
+        case "delete": if words.count > 1 { deleting = root.appendingPathComponent(words[1]); delete() }
+        case "state" where words.count > 1:
+            let title = prompt.map { p -> String in
+                switch p {
+                case .newNote(let f): f.isEmpty ? "新建笔记" : "在「\(f.components(separatedBy: "/").last!)」里新建笔记"
+                case .newFolder(let f): f.isEmpty ? "新建文件夹" : "在「\(f.components(separatedBy: "/").last!)」里新建文件夹"
+                case .rename: "重命名"
+                }
+            } ?? "-"
+            let lines = ["highlighted=\(highlighted)", "selection=\(selection ?? "-")", "mode=\(viewMode.rawValue)",
+                         "expanded=\(expanded.sorted().joined(separator: ","))", "prompt=\(title)", "currentFolder=\(currentFolder)",
+                         "rows=\(FileTree.visibleRows(tree ?? [], expanded: expanded).map { String(repeating: " ", count: $0.depth) + $0.entry.path }.joined(separator: "|"))"]
+            try? lines.joined(separator: "\n").write(toFile: words[1], atomically: true, encoding: .utf8)
+        case "cancel": prompt = nil
+        default: break
+        }
+    }
+    #endif
+
     private var deleteTitle: String {
         guard let deleting else { return "" }
         let name = isDirectory(deleting) ? deleting.lastPathComponent : deleting.deletingPathExtension().lastPathComponent
@@ -312,52 +343,65 @@ struct NotebookView: View {
         case .newNote(let folder):
             TextPrompt(title: folder.isEmpty ? "新建笔记" : "在「\(folder.components(separatedBy: "/").last!)」里新建笔记",
                        label: "标题", confirm: "创建", onCancel: { self.prompt = nil }) { name in
-                do {
-                    let file = try NoteFiles.createNote(in: root.appendingPathComponent(folder), name: name)
-                    let path = NoteIndex.relativePath(of: file, in: root)
-                    self.prompt = nil
-                    refresh += 1
-                    reveal(path)
-                    show(path, mode: .edit)
-                    return nil
-                } catch {
-                    return error.localizedDescription
-                }
+                createNote(named: name, in: folder)
             }
         case .newFolder(let folder):
             TextPrompt(title: folder.isEmpty ? "新建文件夹" : "在「\(folder.components(separatedBy: "/").last!)」里新建文件夹",
                        label: "文件夹名称", confirm: "创建", onCancel: { self.prompt = nil }) { name in
-                do {
-                    let created = try NoteFiles.createFolder(in: root.appendingPathComponent(folder), name: name)
-                    self.prompt = nil
-                    refresh += 1
-                    reveal(NoteIndex.relativePath(of: created, in: root))
-                    return nil
-                } catch {
-                    return error.localizedDescription
-                }
+                createFolder(named: name, in: folder)
             }
         case .rename(let url):
             let wasFolder = isDirectory(url)
             TextPrompt(title: "重命名", label: "新名称",
                        initial: wasFolder ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent,
                        onCancel: { self.prompt = nil }) { name in
-                do {
-                    let old = NoteIndex.relativePath(of: url, in: root)
-                    let renamed = try NoteFiles.rename(url, to: name)
-                    let new = NoteIndex.relativePath(of: renamed, in: root)
-                    self.prompt = nil
-                    // The tree keeps its open folders and highlight under the new name.
-                    notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
-                    highlighted = FileTree.moved(highlighted, old: old, new: new)
-                    selection = selection.map { FileTree.moved($0, old: old, new: new) }
-                    notebooks.commitInBackground(notebook)
-                    refresh += 1
-                    return nil
-                } catch {
-                    return error.localizedDescription
-                }
+                rename(url, to: name)
             }
+        }
+    }
+
+    /// Creates a note in [folder], then opens it for editing. Returns an error message, or nil.
+    private func createNote(named name: String, in folder: String) -> String? {
+        do {
+            let file = try NoteFiles.createNote(in: root.appendingPathComponent(folder), name: name)
+            let path = NoteIndex.relativePath(of: file, in: root)
+            prompt = nil
+            refresh += 1
+            reveal(path)
+            show(path, mode: .edit)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func createFolder(named name: String, in folder: String) -> String? {
+        do {
+            let created = try NoteFiles.createFolder(in: root.appendingPathComponent(folder), name: name)
+            prompt = nil
+            refresh += 1
+            reveal(NoteIndex.relativePath(of: created, in: root))
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func rename(_ url: URL, to name: String) -> String? {
+        do {
+            let old = NoteIndex.relativePath(of: url, in: root)
+            let renamed = try NoteFiles.rename(url, to: name)
+            let new = NoteIndex.relativePath(of: renamed, in: root)
+            prompt = nil
+            // The tree keeps its open folders and highlight under the new name.
+            notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
+            highlighted = FileTree.moved(highlighted, old: old, new: new)
+            selection = selection.map { FileTree.moved($0, old: old, new: new) }
+            notebooks.commitInBackground(notebook)
+            refresh += 1
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 

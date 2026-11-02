@@ -14,6 +14,15 @@ import WebKit
 ///   dump <path>               writes the window's accessibility text tree (sidebar, toolbar, ...)
 ///   select <note path> | folder <path to highlight in the tree> | sync   handled by the main window
 ///   settings | tab <general|notebooks|accounts|about>   opens Settings / picks its tab
+///   tap <path>                the tree row handler, as a click on that row (folder opens/closes, file opens)
+///   mode                      the preview/edit toggle (as the toolbar button)
+///   mknote <name> | mkfolder <name>   create at the current location through the real handlers
+///   rename <path> <new name> | delete <path>   the real rename and delete handlers
+///   newnote | cancel          opens / closes the new-note sheet (read its title with `state`)
+///   state <file>              writes highlight, open note, mode, open folders, sheet title and visible rows
+///   defaultmode <edit|preview>   the "打开笔记时默认为" setting
+///   click <x> <y>             a real mouse click in the key window, x/y from the window's top-left (points)
+///   key <char> [cmd]          activates the app, focuses the editor's web view, and sends a real key press (key equivalents go through the menu)
 extension Notification.Name {
     static let debugCommand = Notification.Name("Jitnote.debugCommand")
 }
@@ -53,10 +62,51 @@ enum DebugHooks {
             var lines: [String] = []
             for window in NSApp.windows where window.isVisible { describe(window, depth: 0, into: &lines) }
             try? lines.joined(separator: "\n").write(toFile: words[1], atomically: true, encoding: .utf8)
+        } else if words.first == "defaultmode", words.count == 2 {
+            notebooks.setDefaultViewMode(words[1] == "preview" ? .preview : .edit)
+        } else if words.first == "click", words.count == 3, let x = Double(words[1]), let y = Double(words[2]) {
+            click(x: x, y: y)
+        } else if words.first == "key", words.count >= 2 {
+            key(words[1], command: words.count > 2)
         } else if command == "forget-accounts" {
             notebooks.state.accounts.forEach(notebooks.removeAccount)
         } else {
             NotificationCenter.default.post(name: .debugCommand, object: command)
+        }
+    }
+
+    @MainActor
+    private static func click(x: Double, y: Double) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow, let content = window.contentView else { return }
+        // Window coordinates have their origin at the bottom left.
+        let point = NSPoint(x: x, y: content.frame.height - y)
+        NSLog("debug click: window=\(window.frame) content=\(content.frame) hit=\(String(describing: content.hitTest(content.convert(point, from: nil)).map { String(describing: type(of: $0)) }))")
+        func send(_ type: NSEvent.EventType, number: Int) {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: number, clickCount: 1,
+                                                 pressure: type == .leftMouseUp ? 0 : 1) else { return }
+            window.sendEvent(event)
+        }
+        // Like a real click: the pointer arrives, presses, and lets go a moment later.
+        send(.mouseMoved, number: 0)
+        send(.leftMouseDown, number: 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { send(.leftMouseUp, number: 1) }
+    }
+
+    @MainActor
+    private static func key(_ characters: String, command: Bool) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        // Virtual key codes matter: WebKit reads them for its own shortcuts (code 0 would be taken for ⌘A).
+        let codes: [String: UInt16] = ["a": 0, "e": 14, "n": 45, "r": 15, "z": 6]
+        // Put the cursor in the editor first, as when someone has been typing there.
+        if let web = window.contentView.map(allSubviews)?.compactMap({ $0 as? WKWebView }).first { window.makeFirstResponder(web) }
+        NSLog("debug key: first responder=\(String(describing: window.firstResponder.map { String(describing: type(of: $0)) }))")
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: command ? [.command] : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                                               isARepeat: false, keyCode: codes[characters] ?? 0) else { continue }
+            NSApp.sendEvent(event)
         }
     }
 
