@@ -125,11 +125,11 @@ private fun NotesHome(
     LaunchedEffect(Unit) { nav.editorMode.clear() }
 
     var refresh by remember { mutableIntStateOf(0) }
-    var conflictCount by remember { mutableIntStateOf(0) }
 
     // Kept in the Navigator: opening a note discards this screen's remembered state, and coming back
     // must neither flash empty nor lose the scroll position.
     val tree = nav.trees[notebook.id]
+    val conflictCount = nav.conflictCounts[notebook.id] ?: 0
     val listState = nav.treeScroll.getOrPut(notebook.id) { LazyListState() }
     val highlighted = nav.highlighted[notebook.id].orEmpty()
 
@@ -142,7 +142,12 @@ private fun NotesHome(
     LaunchedEffect(notebook.id, sort, showHidden, refresh, syncState) {
         if (syncState == SyncState.Running) return@LaunchedEffect
         nav.trees[notebook.id] = withContext(Dispatchers.IO) { NoteIndex.tree(root, sort, showHidden) }
-        conflictCount = notebooks.conflicts(notebook).size
+    }
+    // Separate from the tree walk so a slow walk doesn't delay the card. While a sync runs the last
+    // known count stays (the sync holds the notebook's lock, so reading now would only wait).
+    LaunchedEffect(notebook.id, refresh, syncState) {
+        if (syncState == SyncState.Running) return@LaunchedEffect
+        nav.conflictCounts[notebook.id] = notebooks.conflicts(notebook).size
     }
     SyncMessages(notebooks, syncStates, snackbar)
 

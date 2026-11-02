@@ -44,6 +44,9 @@ class Navigator : ViewModel() {
     val trees = mutableStateMapOf<String, List<NoteIndex.Entry>>()
     val treeScroll = mutableMapOf<String, LazyListState>()
 
+    /** The last known number of unresolved conflicts per notebook, so the home card shows at once on return. */
+    val conflictCounts = mutableStateMapOf<String, Int>()
+
     /** The mode the user switched an open note to; absent means the default. Cleared on returning to the file tree. */
     val editorMode = mutableStateMapOf<Screen.Editor, ViewMode>()
 
@@ -70,8 +73,9 @@ fun JitnoteUi(notebooks: Notebooks, updates: AppUpdates, nav: Navigator = viewMo
     BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
     LaunchedEffect(Unit) { updates.checkOnLaunch() }
     val screen = nav.stack.last()
-    // Each stack entry gets its own state; otherwise Folder("a") → Folder("a/b") would reuse
-    // the parent's remembered file list.
+    // Each stack entry gets its own state, so a screen opened on top of another (a note over the
+    // tree, a version over its history) never reuses the one below's remembered state. What home
+    // must keep across a push lives in the Navigator instead.
     key(nav.stack.size, screen) { ScreenContent(notebooks, updates, nav, screen) }
     UpdateDialog(updates)
 }
