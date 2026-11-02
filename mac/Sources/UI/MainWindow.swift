@@ -111,8 +111,15 @@ struct NotebookView: View {
                     onNewNote: { prompt = .newNote($0) },
                     onNewFolder: { prompt = .newFolder($0) },
                     onHistory: { historyPath = $0 },
-                    onRename: { prompt = .rename(root.appendingPathComponent($0)) },
-                    onDelete: { deleting = root.appendingPathComponent($0) },
+                    // Flush when the prompt opens: the sheet and alert are modal, so the open note can't change after.
+                    onRename: { path in
+                        Task { await bridge.flush() }
+                        prompt = .rename(root.appendingPathComponent(path))
+                    },
+                    onDelete: { path in
+                        Task { await bridge.flush() }
+                        deleting = root.appendingPathComponent(path)
+                    },
                     addingNotebook: $addingNotebook)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
@@ -123,6 +130,11 @@ struct NotebookView: View {
             ToolbarItemGroup {
                 Button { prompt = .newNote(currentFolder) } label: { Label("新建笔记", systemImage: "square.and.pencil") }
                     .help("新建笔记（⌘N）")
+                // The sidebar card is gone when the sidebar is collapsed, so the toolbar keeps a way in.
+                if conflictCount > 0 {
+                    Button { showingConflicts = true } label: { Label("冲突", systemImage: "exclamationmark.triangle") }
+                        .help("有 \(conflictCount) 篇笔记在两个地方都改过，点这里查看")
+                }
                 if syncing {
                     ProgressView().controlSize(.small).help("正在同步…")
                 } else {
@@ -221,7 +233,7 @@ struct NotebookView: View {
                     ToolbarItemGroup {
                         if isMarkdown(path) {
                             Button(action: toggleViewMode) {
-                                Label(viewMode == .preview ? "编辑" : "预览", systemImage: viewMode == .preview ? "square.and.pencil" : "eye")
+                                Label(viewMode == .preview ? "编辑" : "预览", systemImage: viewMode == .preview ? "pencil" : "eye")
                             }
                             .help(viewMode == .preview ? "切换到编辑（⌘E）" : "切换到预览（⌘E）")
                         }
@@ -578,6 +590,7 @@ private struct Sidebar: View {
         .background(highlighted == entry.path ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture { onTap(entry) }
+        .accessibilityAddTraits(.isButton)
         .contextMenu { menu(entry) }
     }
 
