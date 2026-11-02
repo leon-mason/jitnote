@@ -14,21 +14,10 @@ enum class NoteSort(val label: String) {
 }
 
 /**
- * The notebook as the home screen shows it: every note in one flat list, and the folders on their
- * own as a tree. Hidden files and folders (.git, .obsidian, ...) are skipped.
+ * The notebook as the home screen shows it: every file and folder as a tree. Hidden files and
+ * folders (.git, .obsidian, ...) are skipped.
  */
 object NoteIndex {
-    data class Note(
-        val file: File,
-        /** Relative to the notebook root, e.g. "会议/2026/周会.md". */
-        val path: String,
-        /** Folder relative to the notebook root; "" for the root itself. */
-        val folder: String,
-        val title: String,
-        val modified: Long,
-        val preview: String,
-    )
-
     /** A file or folder in the file list, named in full like Obsidian's file explorer. */
     data class Entry(
         val path: String,
@@ -54,34 +43,6 @@ object NoteIndex {
      */
     fun isHidden(name: String, showHidden: Boolean) = name == ".git" || (!showHidden && name.startsWith("."))
 
-    /** All notes under [folder] (and its subfolders), sorted by [sort]. */
-    fun notes(root: File, sort: NoteSort, folder: String = "", showHidden: Boolean = false): List<Note> {
-        val start = if (folder.isEmpty()) root else File(root, folder)
-        val notes = visible(start, showHidden).filter(::isNote).map { file ->
-            val path = file.relativeTo(root).invariantSeparatorsPath
-            Note(
-                file = file,
-                path = path,
-                folder = path.substringBeforeLast('/', ""),
-                title = file.nameWithoutExtension,
-                modified = file.lastModified(),
-                preview = preview(readHead(file)),
-            )
-        }.toList()
-        val byTitle = compareBy(collator) { note: Note -> note.title }
-        // Minutes, not milliseconds: a fresh download writes every file at about the same moment,
-        // and those should simply be listed by title.
-        val minute = { note: Note -> note.modified / 60_000 }
-        return notes.sortedWith(
-            when (sort) {
-                NoteSort.MODIFIED_DESC -> compareByDescending(minute).then(byTitle)
-                NoteSort.MODIFIED_ASC -> compareBy(minute).then(byTitle)
-                NoteSort.TITLE_ASC -> byTitle
-                NoteSort.TITLE_DESC -> byTitle.reversed()
-            },
-        )
-    }
-
     /**
      * Every visible file and folder under [root]. Folders come first; within each group the order
      * follows [sort], except that folders stay sorted by name when sorting by modification time.
@@ -91,7 +52,8 @@ object NoteIndex {
 
     private fun entries(root: File, dir: File, sort: NoteSort, showHidden: Boolean): List<Entry> {
         val byName = compareBy(collator) { file: File -> file.name }
-        // Minutes, not milliseconds, for the same reason as in [notes].
+        // Minutes, not milliseconds: a fresh download writes every file at about the same moment,
+        // and those should simply be listed by name.
         val minute = { file: File -> file.lastModified() / 60_000 }
         val folders = if (sort == NoteSort.TITLE_DESC) byName.reversed() else byName
         val files = when (sort) {
@@ -114,47 +76,5 @@ object NoteIndex {
                     modified = child.lastModified(),
                 )
             }
-    }
-
-    private fun visible(dir: File, showHidden: Boolean): Sequence<File> =
-        dir.walkTopDown().onEnter { it == dir || !isHidden(it.name, showHidden) }.filter { !isHidden(it.name, showHidden) }
-
-    private fun readHead(file: File): String = runCatching {
-        file.bufferedReader().use { reader ->
-            val buffer = CharArray(2048)
-            val n = reader.read(buffer)
-            if (n <= 0) "" else String(buffer, 0, n)
-        }
-    }.getOrDefault("")
-
-    private val image = Regex("""!\[([^\]]*)]\([^)]*\)""")
-    private val embed = Regex("""!\[\[[^\]]*]]""")
-    private val link = Regex("""\[([^\]]*)]\([^)]*\)""")
-    private val wikiLink = Regex("""\[\[(?:[^\]|]*\|)?([^\]]*)]]""")
-    private val linePrefix = Regex("""^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?(?:\[[ xX]]\s+)?""")
-    private val emphasis = Regex("""\*\*|__|~~|==|`""")
-
-    /** The first bit of body text for the note list: no front matter, title line, or Markdown markup. */
-    internal fun preview(markdown: String, maxLength: Int = 100): String {
-        var lines = markdown.replace("\r\n", "\n").lines()
-        if (lines.firstOrNull()?.trim() == "---") {
-            val end = lines.drop(1).indexOfFirst { it.trim() == "---" }
-            lines = if (end >= 0) lines.drop(end + 2) else emptyList()
-        }
-        lines = lines.dropWhile { it.isBlank() }
-        if (lines.firstOrNull()?.trimStart()?.startsWith("# ") == true) lines = lines.drop(1)
-        return lines.asSequence()
-            .map { line ->
-                linePrefix.replace(line, "")
-                    .replace(embed, "")
-                    .replace(image) { it.groupValues[1] }
-                    .replace(link) { it.groupValues[1] }
-                    .replace(wikiLink) { it.groupValues[1] }
-                    .replace(emphasis, "")
-                    .trim()
-            }
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
-            .take(maxLength)
     }
 }

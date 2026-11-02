@@ -19,46 +19,6 @@ class NoteIndexTest {
     }
 
     @Test
-    fun listsEveryNoteInEveryFolderButNotOtherFiles() {
-        write("读书清单.md")
-        write("会议/2026/周会.md")
-        write("技术/安卓/发布.markdown")
-        write("技术/随手记.txt")
-        write("附件/cat.png")
-        write(".obsidian/workspace.md")
-        write(".git/HEAD")
-
-        val notes = NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC)
-        assertEquals(listOf("发布", "周会", "读书清单", "随手记"), notes.map { it.title }.sorted())
-        assertEquals("会议/2026", notes.first { it.title == "周会" }.folder)
-        assertEquals("", notes.first { it.title == "读书清单" }.folder)
-        assertEquals("技术/安卓/发布.markdown", notes.first { it.title == "发布" }.path)
-    }
-
-    @Test
-    fun filtersByFolderIncludingSubfolders() {
-        write("a.md")
-        write("技术/b.md")
-        write("技术/安卓/c.md")
-        write("技术员/d.md")
-
-        assertEquals(listOf("b", "c"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC, folder = "技术").map { it.title })
-        assertEquals(listOf("c"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC, folder = "技术/安卓").map { it.title })
-    }
-
-    @Test
-    fun sortsByTimeOrTitle() {
-        write("b.md", modified = 3_000_000)
-        write("a.md", modified = 1_000_000)
-        write("C.md", modified = 2_000_000)
-
-        assertEquals(listOf("b", "C", "a"), NoteIndex.notes(tmp.root, NoteSort.MODIFIED_DESC).map { it.title })
-        assertEquals(listOf("a", "C", "b"), NoteIndex.notes(tmp.root, NoteSort.MODIFIED_ASC).map { it.title })
-        assertEquals(listOf("a", "b", "C"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC).map { it.title })
-        assertEquals(listOf("C", "b", "a"), NoteIndex.notes(tmp.root, NoteSort.TITLE_DESC).map { it.title })
-    }
-
-    @Test
     fun buildsTheFileTreeLikeObsidian() {
         write("b.md")
         write("A.txt")
@@ -92,10 +52,8 @@ class NoteIndexTest {
         write(".obsidian/templates/模板.md")
         write(".git/notes.md")
 
-        assertEquals(listOf("a"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC).map { it.title })
         assertEquals(listOf("a.md"), NoteIndex.tree(tmp.root).map { it.name })
 
-        assertEquals(listOf("a", "模板"), NoteIndex.notes(tmp.root, NoteSort.TITLE_ASC, showHidden = true).map { it.title })
         val tree = NoteIndex.tree(tmp.root, showHidden = true)
         assertEquals(listOf(".obsidian", "a.md"), tree.map { it.name })
         assertEquals(1, tree[0].noteCount)
@@ -120,15 +78,5 @@ class NoteIndexTest {
     fun treeBreaksTiesInTheSameMinuteByName() {
         write("b.md", modified = 60_000_000); write("a.md", modified = 60_030_000)
         assertEquals(listOf("a.md", "b.md"), NoteIndex.tree(tmp.root, NoteSort.MODIFIED_DESC).map { it.name })
-    }
-
-    @Test
-    fun previewSkipsFrontMatterTitleAndMarkup() {
-        assertEquals(
-            "下周上线检查更新功能 需要先发 一个版本",
-            NoteIndex.preview("---\ntags: [会议]\n---\n# 周会记录\n\n> 下周上线**检查更新**功能\n\n- 需要先发\n- [ ] 一个版本\n"),
-        )
-        assertEquals("看这张图 猫", NoteIndex.preview("看这张图\n![猫](assets/cat.png)\n![[cat.png]]"))
-        assertEquals("", NoteIndex.preview("# 只有标题\n"))
     }
 }

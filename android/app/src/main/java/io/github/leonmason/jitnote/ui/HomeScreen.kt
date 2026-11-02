@@ -1,32 +1,30 @@
 package io.github.leonmason.jitnote.ui
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,18 +33,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -57,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.leonmason.jitnote.data.AppUpdates
+import io.github.leonmason.jitnote.data.FileTree
 import io.github.leonmason.jitnote.data.NoteAssets
 import io.github.leonmason.jitnote.data.NoteFiles
 import io.github.leonmason.jitnote.data.NoteIndex
@@ -64,19 +61,19 @@ import io.github.leonmason.jitnote.data.NoteSort
 import io.github.leonmason.jitnote.data.Notebook
 import io.github.leonmason.jitnote.data.Notebooks
 import io.github.leonmason.jitnote.data.SyncState
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
-/** What the app opens to: the current notebook's notes, or the first steps when there is none yet. */
+/** What the app opens to: the current notebook's file tree, or the first steps when there is none yet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     val state by notebooks.state.collectAsStateWithLifecycle()
     val notebook = notebooks.current(state)
     if (notebook != null) {
-        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.fileSort, state.showHiddenFiles)
+        NotesHome(notebooks, updates, nav, notebook, state.notebooks, state.fileSort, state.showHiddenFiles, state.expandedFolders[notebook.id].orEmpty())
         return
     }
     Scaffold(
@@ -105,6 +102,7 @@ fun HomeScreen(notebooks: Notebooks, updates: AppUpdates, nav: Navigator) {
     }
 }
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotesHome(
@@ -115,51 +113,42 @@ private fun NotesHome(
     all: List<Notebook>,
     sort: NoteSort,
     showHidden: Boolean,
+    expanded: Set<String>,
 ) {
     val syncStates by notebooks.syncStates.collectAsStateWithLifecycle()
     val syncState = syncStates[notebook.id]
     val root = notebooks.dir(notebook)
-    val folder = nav.homeFolder[notebook.id].orEmpty()
-    val drawer = rememberDrawerState(DrawerValue.Closed)
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var refresh by remember { mutableIntStateOf(0) }
-    var notes by remember { mutableStateOf<List<NoteIndex.Note>?>(null) }
-    var tree by remember { mutableStateOf<List<NoteIndex.Entry>>(emptyList()) }
-    var total by remember { mutableIntStateOf(0) }
     var conflictCount by remember { mutableIntStateOf(0) }
 
-    var creatingNote by remember { mutableStateOf(false) }
-    var creatingFolder by remember { mutableStateOf(false) }
+    // Kept in the Navigator: opening a note discards this screen's remembered state, and coming back
+    // must neither flash empty nor lose the scroll position.
+    val tree = nav.trees[notebook.id]
+    val listState = nav.treeScroll.getOrPut(notebook.id) { LazyListState() }
+    val highlighted = nav.highlighted[notebook.id].orEmpty()
+
+    // The folders in the dialogs below are chosen when they open: the highlighted one, or the one long-pressed.
+    var creatingNoteIn by remember { mutableStateOf<String?>(null) }
+    var creatingFolderIn by remember { mutableStateOf<String?>(null) }
     var renaming by remember { mutableStateOf<File?>(null) }
     var deleting by remember { mutableStateOf<File?>(null) }
 
-    LaunchedEffect(notebook.id, folder, sort, showHidden, refresh, syncState) {
+    LaunchedEffect(notebook.id, sort, showHidden, refresh, syncState) {
         if (syncState == SyncState.Running) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            // A folder that was renamed or deleted elsewhere (e.g. by a sync) falls back to all notes.
-            if (folder.isNotEmpty() && !File(root, folder).isDirectory) {
-                nav.homeFolder.remove(notebook.id)
-                return@withContext
-            }
-            val shown = NoteIndex.notes(root, sort, folder, showHidden)
-            notes = shown
-            tree = NoteIndex.tree(root, sort, showHidden)
-            total = if (folder.isEmpty()) shown.size else NoteIndex.notes(root, sort, showHidden = showHidden).size
-        }
+        nav.trees[notebook.id] = withContext(Dispatchers.IO) { NoteIndex.tree(root, sort, showHidden) }
         conflictCount = notebooks.conflicts(notebook).size
     }
     SyncMessages(notebooks, syncStates, snackbar)
 
-    fun showFolder(path: String) {
-        nav.homeFolder[notebook.id] = path
-        scope.launch { drawer.close() }
+    fun setExpanded(paths: Set<String>) {
+        if (paths != expanded) notebooks.setExpandedFolders(notebook.id, paths)
     }
 
-    // A file picked in the file list: notes and text open in the editor, pictures in the viewer.
+    // A file picked in the tree: notes and text open in the editor, pictures in the viewer.
     fun openFile(path: String) {
-        scope.launch { drawer.close() }
         val file = File(root, path)
         when {
             NoteAssets.isImage(file) -> nav.push(Screen.Image(notebook.id, path))
@@ -168,110 +157,97 @@ private fun NotesHome(
         }
     }
 
-    BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
+    fun onRowClick(entry: NoteIndex.Entry) {
+        if (!entry.isFolder) {
+            nav.highlighted[notebook.id] = entry.path
+            openFile(entry.path)
+        } else if (entry.path in expanded) {
+            setExpanded(expanded - entry.path)
+            nav.highlighted[notebook.id] = FileTree.parent(entry.path)
+        } else {
+            setExpanded(expanded + entry.path)
+            nav.highlighted[notebook.id] = entry.path
+        }
+    }
 
-    ModalNavigationDrawer(
-        drawerState = drawer,
-        drawerContent = {
-            FileListDrawer(
-                notebookName = notebook.name,
-                total = total,
-                tree = tree,
-                selected = folder,
-                expanded = nav.expandedFolders[notebook.id].orEmpty(),
-                onToggle = { path ->
-                    val open = nav.expandedFolders[notebook.id].orEmpty()
-                    nav.expandedFolders[notebook.id] = if (path in open) open - path else open + path
+    // New things go in the highlighted folder, or next to the highlighted file.
+    val here = FileTree.currentFolder(tree.orEmpty(), highlighted)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    NotebookSwitcher(notebook, all, onSwitch = { notebooks.setCurrent(it.id) }, onManage = { nav.push(Screen.Notebooks) })
                 },
-                onSelectFolder = ::showFolder,
-                onOpenFile = ::openFile,
-                onNewFolder = { creatingFolder = true },
-                onHistory = { path ->
-                    scope.launch { drawer.close() }
-                    nav.push(Screen.History(notebook.id, path))
+                actions = {
+                    SyncButton(syncState == SyncState.Running) { notebooks.startSync(notebook) }
+                    AppMenu(updates, nav)
                 },
-                onRename = { renaming = File(root, it) },
-                onDelete = { deleting = File(root, it) },
             )
         },
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawer.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "目录")
-                        }
-                    },
-                    title = {
-                        NotebookSwitcher(notebook, all, onSwitch = { notebooks.setCurrent(it.id) }, onManage = { nav.push(Screen.Notebooks) })
-                    },
-                    actions = {
-                        SyncButton(syncState == SyncState.Running) { notebooks.startSync(notebook) }
-                        AppMenu(updates, nav)
-                    },
-                )
-            },
-            floatingActionButton = {
-                ExtendedFloatingActionButton(
-                    onClick = { creatingNote = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("新建笔记") },
-                )
-            },
-            snackbarHost = { SnackbarHost(snackbar) },
-        ) { padding ->
-            val list = notes
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding(),
-                    bottom = padding.calculateBottomPadding() + 96.dp,
-                ),
-            ) {
-                item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { SyncStatusLine(notebook, syncState) } }
-                if (conflictCount > 0) {
-                    item { ConflictsCard(conflictCount) { nav.push(Screen.Conflicts(notebook.id)) } }
-                }
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { creatingNoteIn = here },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("新建笔记") },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = padding.calculateBottomPadding() + 96.dp,
+            ),
+            // A tap on the empty space below the rows clears the highlight, so a new note can go in the root.
+            modifier = Modifier.fillMaxSize().clickable(interactionSource = null, indication = null) { nav.highlighted.remove(notebook.id) },
+        ) {
+            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { SyncStatusLine(notebook, syncState) } }
+            if (conflictCount > 0) {
+                item { ConflictsCard(conflictCount) { nav.push(Screen.Conflicts(notebook.id)) } }
+            }
+            item { TreeHeader(sort, onSort = notebooks::setFileSort, onNewFolder = { creatingFolderIn = here }) }
+            if (tree != null && tree.isEmpty()) {
                 item {
-                    ListHeader(
-                        title = if (folder.isEmpty()) "全部笔记" else folder.substringAfterLast('/'),
-                        count = list?.size,
-                        sort = sort,
-                        onClearFolder = if (folder.isEmpty()) null else ({ nav.homeFolder.remove(notebook.id) }),
-                        onSort = notebooks::setFileSort,
+                    EmptyState(
+                        title = "这里还没有笔记",
+                        body = "点右下角「新建笔记」写第一篇。\n写完会自动保存，点右上角的同步按钮就会保存到云端。",
+                        modifier = Modifier.padding(top = 48.dp),
                     )
                 }
-                if (list != null && list.isEmpty()) {
-                    item {
-                        EmptyState(
-                            title = if (folder.isEmpty()) "这里还没有笔记" else "这个文件夹里还没有笔记",
-                            body = "点右下角「新建笔记」写第一篇。\n写完会自动保存，点右上角的同步按钮就会保存到云端。",
-                            modifier = Modifier.padding(top = 48.dp),
-                        )
-                    }
-                }
-                items(list.orEmpty(), key = { it.path }) { note ->
-                    NoteRow(
-                        note = note,
-                        // Where the note is, relative to the folder being shown.
-                        location = if (folder.isEmpty()) note.folder else note.folder.removePrefix(folder).removePrefix("/"),
-                        onOpen = { nav.push(Screen.Editor(notebook.id, note.path)) },
-                        onHistory = { nav.push(Screen.History(notebook.id, note.path)) },
-                        onRename = { renaming = note.file },
-                        onDelete = { deleting = note.file },
-                    )
-                }
+            }
+            items(FileTree.visibleRows(tree.orEmpty(), expanded), key = { it.entry.path }) { row ->
+                val path = row.entry.path
+                FileTreeRow(
+                    row = row,
+                    isExpanded = path in expanded,
+                    isHighlighted = path == highlighted,
+                    onClick = { onRowClick(row.entry) },
+                    onHistory = { nav.push(Screen.History(notebook.id, path)) },
+                    onRename = { renaming = File(root, path) },
+                    onDelete = { deleting = File(root, path) },
+                    onNewNoteHere = { creatingNoteIn = path },
+                    onNewFolderHere = { creatingFolderIn = path },
+                )
             }
         }
     }
 
-    val here = if (folder.isEmpty()) root else File(root, folder)
-    if (creatingNote) {
-        TextInputDialog(title = "新建笔记", label = "标题", confirmLabel = "创建", onDismiss = { creatingNote = false }) { name ->
+    creatingNoteIn?.let { folder ->
+        TextInputDialog(
+            title = if (folder.isEmpty()) "新建笔记" else "在「${folder.substringAfterLast('/')}」里新建笔记",
+            label = "标题",
+            confirmLabel = "创建",
+            onDismiss = { creatingNoteIn = null },
+        ) { name ->
             try {
-                val file = NoteFiles.createNote(here, name)
-                creatingNote = false
-                nav.push(Screen.Editor(notebook.id, NoteFiles.relativePath(root, file)))
+                val file = NoteFiles.createNote(if (folder.isEmpty()) root else File(root, folder), name)
+                val path = NoteFiles.relativePath(root, file)
+                creatingNoteIn = null
+                setExpanded(expanded + FileTree.ancestors(path))
+                nav.highlighted[notebook.id] = path
+                nav.push(Screen.Editor(notebook.id, path, startEditing = true))
                 null
             } catch (e: IllegalArgumentException) {
                 e.message
@@ -279,20 +255,19 @@ private fun NotesHome(
         }
     }
 
-    if (creatingFolder) {
+    creatingFolderIn?.let { folder ->
         TextInputDialog(
             title = if (folder.isEmpty()) "新建文件夹" else "在「${folder.substringAfterLast('/')}」里新建文件夹",
             label = "文件夹名称",
             confirmLabel = "创建",
-            onDismiss = { creatingFolder = false },
+            onDismiss = { creatingFolderIn = null },
         ) { name ->
             try {
-                val created = NoteFiles.createFolder(here, name)
-                creatingFolder = false
-                if (folder.isNotEmpty()) {
-                    nav.expandedFolders[notebook.id] = nav.expandedFolders[notebook.id].orEmpty() + folder
-                }
-                showFolder(NoteFiles.relativePath(root, created))
+                val created = NoteFiles.createFolder(if (folder.isEmpty()) root else File(root, folder), name)
+                val path = NoteFiles.relativePath(root, created)
+                creatingFolderIn = null
+                setExpanded(expanded + FileTree.ancestors(path))
+                nav.highlighted[notebook.id] = path
                 refresh++
                 null
             } catch (e: IllegalArgumentException) {
@@ -310,13 +285,11 @@ private fun NotesHome(
         ) { name ->
             try {
                 val old = NoteFiles.relativePath(root, file)
-                val wasFolder = file.isDirectory
                 val renamed = NoteFiles.rename(file, name)
+                val new = NoteFiles.relativePath(root, renamed)
                 renaming = null
-                // Keep showing the renamed folder (or the folder inside it).
-                if (wasFolder && (folder == old || folder.startsWith("$old/"))) {
-                    nav.homeFolder[notebook.id] = NoteFiles.relativePath(root, renamed) + folder.removePrefix(old)
-                }
+                setExpanded(FileTree.renamed(expanded, old, new))
+                nav.highlighted[notebook.id] = FileTree.moved(highlighted, old, new)
                 notebooks.commitInBackground(notebook)
                 refresh++
                 null
@@ -339,7 +312,11 @@ private fun NotesHome(
             destructive = true,
             onDismiss = { deleting = null },
         ) {
+            val path = NoteFiles.relativePath(root, file)
             deleting = null
+            setExpanded(FileTree.removed(expanded, path))
+            // The highlight falls back to the folder that held what was deleted.
+            if (highlighted == path || highlighted.startsWith("$path/")) nav.highlighted[notebook.id] = FileTree.parent(path)
             scope.launch {
                 notebooks.withLock(notebook) { file.deleteRecursively() }
                 notebooks.commit(notebook)
@@ -433,30 +410,14 @@ private fun ConflictsCard(count: Int, onClick: () -> Unit) {
     }
 }
 
-/** "全部笔记 · 23 篇" (or the chosen folder) and the sort order. */
+/** The sort order and the way to a new folder; both act on the current location. */
 @Composable
-private fun ListHeader(title: String, count: Int?, sort: NoteSort, onClearFolder: (() -> Unit)?, onSort: (NoteSort) -> Unit) {
+private fun TreeHeader(sort: NoteSort, onSort: (NoteSort) -> Unit, onNewFolder: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp),
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            if (count == null) title else "$title · $count 篇",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (onClearFolder != null) {
-            Text(
-                "看全部",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable(onClick = onClearFolder).padding(8.dp),
-            )
-        }
         Box {
             Row(
                 Modifier.clickable { open = true }.padding(8.dp),
@@ -481,6 +442,10 @@ private fun ListHeader(title: String, count: Int?, sort: NoteSort, onClearFolder
                 }
             }
         }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onNewFolder) {
+            Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -488,60 +453,6 @@ private val NoteSort.shortLabel
     get() = when (this) {
         NoteSort.MODIFIED_DESC -> "最近修改"
         NoteSort.MODIFIED_ASC -> "最早修改"
-        NoteSort.TITLE_ASC -> "标题 A→Z"
-        NoteSort.TITLE_DESC -> "标题 Z→A"
+        NoteSort.TITLE_ASC -> "名称 A→Z"
+        NoteSort.TITLE_DESC -> "名称 Z→A"
     }
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NoteRow(
-    note: NoteIndex.Note,
-    location: String,
-    onOpen: () -> Unit,
-    onHistory: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var menu by remember { mutableStateOf(false) }
-    Box {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .combinedClickable(onClick = onOpen, onLongClick = { menu = true })
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (note.preview.isNotEmpty()) {
-                Text(
-                    note.preview,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                if (location.isEmpty()) friendlyTime(note.modified) else "$location · ${friendlyTime(note.modified)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text("历史版本") }, onClick = {
-                menu = false
-                onHistory()
-            })
-            DropdownMenuItem(text = { Text("重命名") }, onClick = {
-                menu = false
-                onRename()
-            })
-            DropdownMenuItem(text = { Text("删除") }, onClick = {
-                menu = false
-                onDelete()
-            })
-        }
-        HorizontalDivider(Modifier.align(Alignment.BottomStart).padding(start = 16.dp), color = MaterialTheme.colorScheme.surfaceVariant)
-    }
-}

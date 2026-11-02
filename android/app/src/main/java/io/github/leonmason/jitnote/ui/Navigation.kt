@@ -1,6 +1,7 @@
 package io.github.leonmason.jitnote.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -10,10 +11,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.leonmason.jitnote.core.Version
 import io.github.leonmason.jitnote.data.AppUpdates
+import io.github.leonmason.jitnote.data.NoteIndex
 import io.github.leonmason.jitnote.data.Notebooks
 
 sealed interface Screen {
-    /** The current notebook's notes. */
+    /** The current notebook's file tree. */
     data object Home : Screen
 
     /** Add, rename, remove and sync notebooks. */
@@ -22,7 +24,7 @@ sealed interface Screen {
     data object Accounts : Screen
     data object AddAccount : Screen
     data object NewNotebook : Screen
-    data class Editor(val notebookId: String, val path: String) : Screen
+    data class Editor(val notebookId: String, val path: String, val startEditing: Boolean = false) : Screen
     data class History(val notebookId: String, val path: String) : Screen
     data class VersionPreview(val notebookId: String, val path: String, val version: Version) : Screen
     data class Conflicts(val notebookId: String) : Screen
@@ -33,9 +35,13 @@ sealed interface Screen {
 class Navigator : ViewModel() {
     val stack = mutableStateListOf<Screen>(Screen.Home)
 
-    /** Home screen state that should survive opening a note: the folder filter and the open folders in the tree, per notebook. */
-    val homeFolder = mutableStateMapOf<String, String>()
-    val expandedFolders = mutableStateMapOf<String, Set<String>>()
+    /**
+     * File tree state that should survive opening a note, per notebook: the highlighted path, the
+     * loaded tree (so coming back doesn't flash empty) and the scroll position.
+     */
+    val highlighted = mutableStateMapOf<String, String>()
+    val trees = mutableStateMapOf<String, List<NoteIndex.Entry>>()
+    val treeScroll = mutableMapOf<String, LazyListState>()
 
     fun push(screen: Screen) {
         stack.add(screen)
