@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +36,7 @@ import io.github.leonmason.jitnote.data.NoteFiles
 import io.github.leonmason.jitnote.data.Notebook
 import io.github.leonmason.jitnote.data.Notebooks
 import io.github.leonmason.jitnote.data.SyncState
+import io.github.leonmason.jitnote.data.ViewMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -77,6 +80,10 @@ fun EditorScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Editor) {
     val root = notebooks.dir(notebook)
     val file = File(root, screen.path)
     var content by remember { mutableStateOf<String?>(null) }
+    val appState by notebooks.state.collectAsStateWithLifecycle()
+    val isMarkdown = file.extension.lowercase() in setOf("md", "markdown")
+    // Only what the user toggled on this note is remembered; otherwise new notes edit and the rest follow the setting.
+    val mode = nav.editorMode[screen] ?: if (screen.startEditing) ViewMode.EDIT else appState.defaultViewMode
 
     // Never edit while a sync is rewriting files; (re)load once it is done.
     LaunchedEffect(syncing) {
@@ -86,6 +93,15 @@ fun EditorScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Editor) {
     Scaffold(
         topBar = {
             BackTopBar(NoteFiles.Entry(file, false, 0).title, onBack = nav::pop) {
+                if (isMarkdown) {
+                    val toPreview = mode == ViewMode.EDIT
+                    IconButton(onClick = { nav.editorMode[screen] = if (toPreview) ViewMode.PREVIEW else ViewMode.EDIT }) {
+                        Icon(
+                            if (toPreview) Icons.Outlined.Visibility else Icons.Outlined.Edit,
+                            contentDescription = if (toPreview) "预览" else "编辑",
+                        )
+                    }
+                }
                 IconButton(onClick = { nav.push(Screen.History(notebook.id, screen.path)) }) {
                     Icon(Icons.Outlined.History, contentDescription = "历史版本")
                 }
@@ -97,8 +113,8 @@ fun EditorScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Editor) {
             when {
                 syncing -> Waiting("正在同步，请稍候…")
                 text == null -> Waiting("正在打开…")
-                file.extension.lowercase() in setOf("md", "markdown") ->
-                    RichNoteEditor(notebooks, notebook, root, screen.path, file, text) { image ->
+                isMarkdown ->
+                    RichNoteEditor(notebooks, notebook, root, screen.path, file, text, mode == ViewMode.PREVIEW) { image ->
                         nav.push(Screen.Image(notebook.id, image))
                     }
                 else -> PlainTextEditor(notebooks, notebook, file, text)
@@ -115,6 +131,7 @@ private fun RichNoteEditor(
     path: String,
     file: File,
     text: String,
+    readonly: Boolean,
     onOpenImage: (String) -> Unit,
 ) {
     val saver = remember(text) { NoteSaver(file, text) }
@@ -135,7 +152,7 @@ private fun RichNoteEditor(
         notebookRoot = root,
         notePath = path,
         content = text,
-        readonly = false,
+        readonly = readonly,
         handle = handle,
         modifier = Modifier.fillMaxSize(),
         onChange = {

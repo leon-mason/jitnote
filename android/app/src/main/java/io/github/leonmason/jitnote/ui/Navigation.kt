@@ -13,6 +13,7 @@ import io.github.leonmason.jitnote.core.Version
 import io.github.leonmason.jitnote.data.AppUpdates
 import io.github.leonmason.jitnote.data.NoteIndex
 import io.github.leonmason.jitnote.data.Notebooks
+import io.github.leonmason.jitnote.data.ViewMode
 
 sealed interface Screen {
     /** The current notebook's file tree. */
@@ -42,6 +43,9 @@ class Navigator : ViewModel() {
     val highlighted = mutableStateMapOf<String, String>()
     val trees = mutableStateMapOf<String, List<NoteIndex.Entry>>()
     val treeScroll = mutableMapOf<String, LazyListState>()
+
+    /** The mode the user switched an open note to; absent means the default. Cleared on returning to the file tree. */
+    val editorMode = mutableStateMapOf<Screen.Editor, ViewMode>()
 
     fun push(screen: Screen) {
         stack.add(screen)

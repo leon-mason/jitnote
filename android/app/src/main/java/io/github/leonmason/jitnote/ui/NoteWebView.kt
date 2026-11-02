@@ -1,6 +1,7 @@
 package io.github.leonmason.jitnote.ui
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -9,6 +10,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -60,7 +62,8 @@ class EditorHandle(private val onClose: ((String?) -> Unit)? = null) {
 /**
  * The shared web editor (see /editor in the repository) showing one note.
  * Images are found like other editors do (see [NoteAssets]) and served from the notebook folder.
- * [onChange] is called on a background thread.
+ * [onChange] is called on a background thread. [readonly] may change while the editor is shown;
+ * the page is not reloaded then, so the scroll position stays.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -76,6 +79,9 @@ fun NoteWebView(
 ) {
     val latestOnChange by rememberUpdatedState(onChange)
     val latestOnOpenImage by rememberUpdatedState(onOpenImage)
+    // onReady runs long after the factory, so it must see the latest value, not the first one.
+    val latestReadonly by rememberUpdatedState(readonly)
+    val applied = remember { booleanArrayOf(readonly) }
     val assets = remember(notebookRoot) { NoteAssets(notebookRoot) }
     val background = MaterialTheme.colorScheme.background.toArgb()
     val folder = notePath.substringBeforeLast('/', "")
@@ -116,7 +122,7 @@ fun NoteWebView(
                         @JavascriptInterface
                         fun onReady() {
                             val options = JSONObject()
-                                .put("readonly", readonly)
+                                .put("readonly", latestReadonly)
                                 .put("baseUrl", baseUrl)
                                 .put("notebookUrl", notebookUrl)
                             post {
@@ -143,6 +149,16 @@ fun NoteWebView(
                 )
                 loadUrl(EDITOR_URL)
                 handle.webView = this
+            }
+        },
+        update = { view ->
+            if (applied[0] != readonly) {
+                applied[0] = readonly
+                view.evaluateJavascript("window.JitnoteEditor && window.JitnoteEditor.setReadonly($readonly)", null)
+                if (readonly) {
+                    val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(view.windowToken, 0)
+                }
             }
         },
         onRelease = { handle.release(it) },

@@ -121,6 +121,9 @@ private fun NotesHome(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // Back at the file tree: the next note opens in the default mode again.
+    LaunchedEffect(Unit) { nav.editorMode.clear() }
+
     var refresh by remember { mutableIntStateOf(0) }
     var conflictCount by remember { mutableIntStateOf(0) }
 
