@@ -44,6 +44,20 @@ final class EditorBridge: ObservableObject {
 private let scheme = "jitnote"
 private let host = "app"
 
+/// The editor's web view. WebKit offers a key equivalent to the page before the menu, and the editor
+/// binds ⌘E to inline code, so the shortcut for switching edit/preview would never reach the menu
+/// while the cursor is in the text. Handle it here, ahead of the page.
+private final class EditorWebView: WKWebView {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "e" {
+            NotificationCenter.default.post(name: .toggleViewMode, object: nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 /// The shared web editor (see /editor in the repository) showing one note in a WKWebView.
 /// Same host interface as Android: JitnoteHost.onReady / onChange / resolveFile / openImage.
 @MainActor
@@ -82,7 +96,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         """
         configuration.userContentController.addUserScript(WKUserScript(source: shim, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.add(self, name: "host")
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = EditorWebView(frame: .zero, configuration: configuration)
         webView.uiDelegate = self
         webView.navigationDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
