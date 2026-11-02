@@ -21,6 +21,11 @@ body.with-toolbar #editor {
   padding-bottom: var(--gn-toolbar-height);
 }
 
+/* Read-only has no formatting UI. Switching to it with text selected would leave Crepe's floating toolbar open. */
+body:not(.with-toolbar) .milkdown-toolbar {
+  display: none !important;
+}
+
 .milkdown {
   --gn-background: #fbfdfb;
   --crepe-color-background: #fbfdfb;
