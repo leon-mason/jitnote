@@ -37,7 +37,7 @@ Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Rel
 4. Already have a notes repository (e.g. from Obsidian)? Pick it under "添加笔记本 → 用已有的" (Add notebook → Use existing). Existing files are kept as they are.
 5. New or second phone: connect the same account, then pick your notebooks under "用已有的" (Use existing).
 
-The home screen lists **every note** in the current notebook (no folders), sorted by modified time or title. Swipe right anywhere on the screen, or tap ☰ in the top-left corner, to open the file list (文件列表): like Obsidian, it shows every file and folder with full names. Tap a folder to see only its notes, or a file to open it. Tap the notebook name at the top to switch notebooks or open "管理笔记本" (Manage notebooks).
+The home screen is the **file tree** of the current notebook: like Obsidian, it shows every file and folder with full names. Tap a folder to expand or collapse it (empty folders too) and a file to open it; the app remembers which folders are expanded. New notes and new folders are created at the highlighted location. Tap the notebook name at the top to switch notebooks or open "管理笔记本" (Manage notebooks). Whether a note opens for editing or in preview is set under "⋮ → 设置" (Settings), and you can switch at any time from the top bar once it is open; preview is read-only and never changes the file.
 
 Hidden files starting with "." (such as `.obsidian` and `.gitignore`) are not shown unless you turn on "显示隐藏文件" in "⋮ → 设置" (on the Mac: Settings → 通用). Git's own `.git` folder is never shown.
 
@@ -58,7 +58,7 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 
 1. Download `Jitnote-mac-apple-silicon-x.y.z.dmg` from [Releases](https://github.com/leon-mason/jitnote/releases/latest), open it, and drag "记特" onto Applications in the window that appears.
 2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.
-3. Connecting an account and adding notebooks work as on Android. The window has three columns: the notebook switcher and the file list (文件列表), the note list, and the open note. ⌘N creates a note, ⌘R syncs.
+3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree (click a folder to expand or collapse it, a file to open it), and the open note. ⌘N creates a note, ⌘R syncs, ⌘E switches between editing and preview (the default is set under Settings → 通用).
 4. When a new version is out, the app offers to download it; click "打开安装包" (Open installer) and drag the new app onto Applications, as when installing, choosing Replace. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
 
 ## Development
