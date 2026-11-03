@@ -53,6 +53,58 @@ final class Notebooks: ObservableObject {
 
     func setCurrent(_ id: String) { update { $0.currentNotebookId = id } }
 
+    // MARK: - A notebook whose folder is gone
+
+    /// Bumped when it is worth looking again at whether notebook folders still exist (the window came
+    /// forward, a drive may be back, a folder was pointed at again), so the windows re-check.
+    @Published private(set) var folderChecks = 0
+
+    func recheckFolders() { folderChecks += 1 }
+
+    /// Points a notebook whose folder was moved at its new place. The folder must be that same notebook:
+    /// not an arbitrary folder, so no way to change where a notebook lives, only to find it again.
+    /// Whatever was not synced is in the folder, and stays.
+    func relocate(_ notebook: Notebook, to folder: URL) async throws {
+        let origin = try? await Self.background { try NotebookGit(workTree: folder).originUrl() }
+        let others = state.notebooks.filter { $0.id != notebook.id }.map(dir)
+        if let problem = NotebookFolders.relocationProblem(folder: folder, originUrl: origin ?? nil, expectedRemote: notebook.remoteUrl, otherNotebooks: others) {
+            throw SyncError(.other, problem)
+        }
+        updateNotebook(notebook.id) {
+            $0.folderPath = folder.path
+            $0.folderChosen = !NotebookFolders.isInDefaultRoot(folder)
+        }
+        revision += 1
+        folderChecks += 1
+    }
+
+    /// Downloads the notebook again into the place it used to be, when its folder cannot be found. Only into
+    /// an empty or missing folder, and only when the folder above it still exists (see `redownloadProblem`).
+    func redownload(_ notebook: Notebook, onProgress: @escaping (String) -> Void) async throws {
+        let target = dir(notebook)
+        let mayCreateParents = notebook.folderPath == nil || NotebookFolders.isInDefaultRoot(target)
+        if let problem = NotebookFolders.redownloadProblem(target, mayCreateParents: mayCreateParents) { throw SyncError(.other, problem) }
+        guard let account = account(notebook.accountId) else {
+            throw SyncError(.auth, "这个笔记本用的云端账号已断开，请先到「云端账号」里重新连接")
+        }
+        onProgress("正在下载笔记本…")
+        let credentials = try await credentials(account), url = notebook.remoteUrl
+        try? FileManager.default.removeItem(at: target.appendingPathComponent(".DS_Store"))
+        _ = try await Self.background {
+            try NotebookGit.clone(url: url, into: target, credentials: credentials) { received, total in
+                guard total > 0 else { return }
+                let percent = received * 100 / total
+                DispatchQueue.main.async { onProgress("正在下载笔记本… \(percent)%") }
+            }
+        }
+        updateNotebook(notebook.id) {
+            $0.lastSyncAt = nowMillis()
+            $0.lastSyncError = nil
+        }
+        revision += 1
+        folderChecks += 1
+    }
+
     func setFileSort(_ sort: NoteSort) { update { $0.fileSort = sort } }
 
     func setExpandedFolders(_ notebookId: String, _ paths: Set<String>) {
@@ -273,6 +325,8 @@ final class Notebooks: ObservableObject {
         Task { await sync(notebook) }
     }
 
+    private static let folderGoneMessage = "找不到这个笔记本的文件夹，没法同步。请先在笔记本页面里找回它，或者重新下载。"
+
     /// Goes on with a sync that asked a question, using the user's answers.
     func continueSync(_ choices: [String: Side]) {
         guard let pending = pendingSync, !isSyncing(pending.notebook) else { return }
@@ -288,6 +342,12 @@ final class Notebooks: ObservableObject {
     }
 
     private func sync(_ notebook: Notebook, choices: [String: Side] = [:]) async {
+        // Never "sync" a folder that is not there: nothing in it to upload, and a fresh empty one must not appear.
+        if NotebookFolders.isMissing(dir(notebook)) {
+            folderChecks += 1
+            syncMessage = SyncMessage(notebookId: notebook.id, ok: false, text: Self.folderGoneMessage)
+            return
+        }
         syncing.insert(notebook.id)
         defer {
             syncing.remove(notebook.id)
@@ -377,12 +437,7 @@ final class Notebooks: ObservableObject {
         Credentials(username: account.login, password: try await token(account))
     }
 
-    private static func sameRepoKey(_ url: String) -> String {
-        var key = url.trimmingCharacters(in: .whitespaces).lowercased()
-        while key.hasSuffix("/") { key.removeLast() }
-        if key.hasSuffix(".git") { key.removeLast(4) }
-        return key
-    }
+    private static func sameRepoKey(_ url: String) -> String { RepoUrls.key(of: url) }
 
     private static func background<T>(_ body: @escaping () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in

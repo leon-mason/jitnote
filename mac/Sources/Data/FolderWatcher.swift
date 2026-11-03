@@ -2,7 +2,7 @@ import CoreServices
 import Foundation
 
 /// Reports changes inside a notebook folder as they happen, whoever makes them: an AI, a terminal,
-/// Finder, another editor, or this app itself. Paths are relative to the folder. Everything under `.git`
+/// Finder, another editor, or this app itself. Paths are relative to the folder ("" is the folder itself). Everything under `.git`
 /// is left out: Git's own bookkeeping would fire on every sync, and what matters there (unsynced
 /// work) is checked when the window comes forward.
 ///
@@ -33,7 +33,7 @@ final class FolderWatcher {
             release: { info in Unmanaged<FolderWatcher>.fromOpaque(info!).release() },
             copyDescription: nil
         )
-        let flags = UInt32(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer)
+        let flags = UInt32(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagWatchRoot)
         let callback: FSEventStreamCallback = { _, info, _, paths, _, _ in
             let watcher = Unmanaged<FolderWatcher>.fromOpaque(info!).takeUnretainedValue()
             watcher.deliver((unsafeBitCast(paths, to: NSArray.self) as? [String]) ?? [])
@@ -63,6 +63,11 @@ final class FolderWatcher {
         var seen = Set<String>()
         var relative: [String] = []
         for path in absolute {
+            // The folder itself (it was moved or deleted, or its own details changed) is reported as "".
+            if path == rootPath {
+                if seen.insert("").inserted { relative.append("") }
+                continue
+            }
             guard path.hasPrefix(rootPath + "/") else { continue }
             let inside = String(path.dropFirst(rootPath.count + 1))
             if inside == ".git" || inside.hasPrefix(".git/") { continue }

@@ -11,8 +11,14 @@ struct MainView: View {
     var body: some View {
         Group {
             if let notebook = notebooks.state.currentNotebook {
-                NotebookView(notebook: notebook, addingNotebook: $addingNotebook)
-                    .id(notebook.id)
+                // Looked at on every draw (cheap), and redrawn when `folderChecks` changes.
+                if notebooks.folderChecks >= 0 && NotebookFolders.isMissing(notebooks.dir(notebook)) {
+                    MissingFolderView(notebook: notebook)
+                        .id("missing-\(notebook.id)")
+                } else {
+                    NotebookView(notebook: notebook, addingNotebook: $addingNotebook)
+                        .id(notebook.id)
+                }
             } else if notebooks.state.accounts.isEmpty {
                 Welcome { addingAccount = true }
             } else {
@@ -30,6 +36,10 @@ struct MainView: View {
         .sheet(isPresented: $addingNotebook) { AddNotebookView { addingNotebook = false } }
         .modifier(UpdatePrompts())
         .task { updates.checkOnLaunch() }
+        // A drive may have been plugged back in, or a folder moved, while the app was behind.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            notebooks.recheckFolders()
+        }
     }
 }
 
@@ -303,6 +313,8 @@ struct NotebookView: View {
     /// Something in the notebook folder changed on disk, made by another program (an AI, a terminal, Finder).
     /// The file is the only truth: the tree follows it, and so does the note that is open.
     private func externalChange(_ paths: [String]) {
+        // The folder itself: moved or deleted, so the window may have to turn into the "folder not found" page.
+        if paths.contains("") { notebooks.recheckFolders() }
         // A sync writes many files; the screen is rebuilt when it ends.
         guard !syncing else { return }
         let showHidden = notebooks.state.showHiddenFiles
@@ -417,6 +429,8 @@ struct NotebookView: View {
 
     /// Creates a note in [folder], then opens it for editing. Returns an error message, or nil.
     private func createNote(named name: String, in folder: String) -> String? {
+        // The folder may have gone in the moment before the window noticed; creating a note would make it again.
+        if NotebookFolders.isMissing(root) { notebooks.recheckFolders(); return "找不到这个笔记本的文件夹" }
         do {
             let file = try NoteFiles.createNote(in: root.appendingPathComponent(folder), name: name)
             let path = NoteIndex.relativePath(of: file, in: root)
@@ -431,6 +445,7 @@ struct NotebookView: View {
     }
 
     private func createFolder(named name: String, in folder: String) -> String? {
+        if NotebookFolders.isMissing(root) { notebooks.recheckFolders(); return "找不到这个笔记本的文件夹" }
         do {
             let created = try NoteFiles.createFolder(in: root.appendingPathComponent(folder), name: name)
             prompt = nil

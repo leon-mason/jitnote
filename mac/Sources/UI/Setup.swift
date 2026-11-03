@@ -58,7 +58,12 @@ struct ManageNotebooksView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(notebook.name).font(.headline)
-                            SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
+                            if notebooks.folderChecks >= 0 && NotebookFolders.isMissing(notebooks.dir(notebook)) {
+                                Label("找不到这个笔记本的文件夹", systemImage: "folder.badge.questionmark")
+                                    .font(.caption).foregroundStyle(.orange)
+                            } else {
+                                SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
+                            }
                         }
                         Spacer()
                         if notebook.id == notebooks.state.currentNotebook?.id {

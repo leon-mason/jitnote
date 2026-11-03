@@ -44,6 +44,41 @@ enum NotebookFolders {
         return nil
     }
 
+    /// Whether the folder of a notebook cannot be used: it was moved or deleted, or the drive it is on is not
+    /// plugged in. A folder that exists but has no `.git` (emptied, or made again by a mount point) counts too.
+    static func isMissing(_ folder: URL) -> Bool {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue else { return true }
+        return !FileManager.default.fileExists(atPath: folder.appendingPathComponent(".git").path)
+    }
+
+    /// Why [folder] cannot take over as the folder of a notebook whose cloud repository is [expectedRemote], or
+    /// nil when it can. [originUrl] is what the folder says it was downloaded from. This is how a notebook
+    /// whose folder was moved is pointed at it again, so it must be that notebook and nothing else; whatever
+    /// was not synced is in it and stays.
+    static func relocationProblem(folder: URL, originUrl: String?, expectedRemote: String, otherNotebooks: [URL]) -> String? {
+        guard !isMissing(folder) else { return "这个文件夹里没有笔记本。" }
+        guard let originUrl, RepoUrls.key(of: originUrl) == RepoUrls.key(of: expectedRemote) else {
+            return "这个文件夹里是另一个笔记本，不是这一个。"
+        }
+        let path = canonical(folder)
+        if otherNotebooks.map(canonical).contains(path) { return "这个文件夹已经是另一个笔记本在用了。" }
+        return nil
+    }
+
+    /// Why a notebook cannot be downloaded again into [target] (where it used to be), or nil when it can.
+    /// Beyond the usual rules for a new notebook: when the folder above is gone too (a drive that is not
+    /// plugged in), nothing is made there, so no empty folder appears at a mount point.
+    /// [mayCreateParents] is true for places this app made itself (`~/Jitnote`, the app's own folder).
+    static func redownloadProblem(_ target: URL, mayCreateParents: Bool) -> String? {
+        if let problem = problem(with: target) { return problem }
+        let parent = target.deletingLastPathComponent()
+        if !mayCreateParents && !FileManager.default.fileExists(atPath: parent.path) {
+            return "放这个笔记本的位置「\(parent.path)」也找不到，可能是外置硬盘没有插上。"
+        }
+        return nil
+    }
+
     /// A warning for places that another program keeps in sync (iCloud Drive, Dropbox…). The two syncs
     /// race on the notebook's hidden `.git` folder, and a half-synced one can corrupt its history.
     /// Not an error: the user may know better.

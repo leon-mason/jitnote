@@ -169,6 +169,14 @@ enum HostingApi {
 }
 
 enum RepoUrls {
+    /// The same repository written differently (case, trailing "/", ".git") gives the same key.
+    static func key(of url: String) -> String {
+        var key = url.trimmingCharacters(in: .whitespaces).lowercased()
+        while key.hasSuffix("/") { key.removeLast() }
+        if key.hasSuffix(".git") { key.removeLast(4) }
+        return key
+    }
+
     private static let knownHosts: Set<String> = ["github.com", "www.github.com", "gitee.com", "www.gitee.com"]
 
     /// Turns what people paste (often the browser address, e.g. ".../tree/master/docs") into a

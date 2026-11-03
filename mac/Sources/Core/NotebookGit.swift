@@ -26,6 +26,17 @@ final class NotebookGit: @unchecked Sendable {
         self.workTree = workTree
     }
 
+    /// The address of the cloud repository this folder was downloaded from; nil when the folder is not a
+    /// notebook working copy at all (the error then comes from opening it).
+    func originUrl() throws -> String? {
+        try withRepo { repo in
+            var remote: OpaquePointer?
+            guard git_remote_lookup(&remote, repo, Self.remoteName) == 0 else { return nil }
+            defer { git_remote_free(remote) }
+            return git_remote_url(remote).map { String(cString: $0) }
+        }
+    }
+
     func hasLocalChanges() throws -> Bool {
         try withRepo { try !isClean($0) }
     }

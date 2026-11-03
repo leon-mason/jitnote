@@ -8,6 +8,8 @@ import WebKit
 ///   snapshot <path-prefix>   every visible window → <prefix>-<n>.png
 ///   account <login> <password>   connects an "other" account (real code path, token in Keychain)
 ///   import <url> [folder]    downloads a notebook with the first account (real code path), into [folder] or the default place
+///   relocate <name> <folder>  points a notebook whose folder is gone at the folder it was moved to (real code path)
+///   redownload <name>         downloads a notebook whose folder is gone into its old place (real code path)
 ///   remove <name>             removes the notebook of that name from this Mac (real code path: the folder goes unless it was chosen)
 ///   forget-accounts           disconnects every account, removing their Keychain tokens
 ///   settings                  opens the Settings window
@@ -53,6 +55,24 @@ enum DebugHooks {
                     NSLog("debug import: \(notebooks.dir(notebook).path) chosen=\(notebook.folderChosen)")
                 } catch {
                     NSLog("import failed: \(error)")
+                }
+            }
+        } else if words.first == "relocate", words.count == 3, let notebook = notebooks.state.notebooks.first(where: { $0.name == words[1] }) {
+            Task {
+                do {
+                    try await notebooks.relocate(notebook, to: URL(fileURLWithPath: words[2], isDirectory: true))
+                    NSLog("debug relocate: done")
+                } catch {
+                    NSLog("debug relocate failed: \(error.localizedDescription)")
+                }
+            }
+        } else if words.first == "redownload", words.count == 2, let notebook = notebooks.state.notebooks.first(where: { $0.name == words[1] }) {
+            Task {
+                do {
+                    try await notebooks.redownload(notebook, onProgress: { _ in })
+                    NSLog("debug redownload: done")
+                } catch {
+                    NSLog("debug redownload failed: \(error.localizedDescription)")
                 }
             }
         } else if words.first == "remove", words.count == 2, let notebook = notebooks.state.notebooks.first(where: { $0.name == words[1] }) {

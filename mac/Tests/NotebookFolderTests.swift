@@ -101,6 +101,60 @@ enum NotebookFolderTests {
             try expectEqual(again, chosen)
         },
 
+        TestCase("aFolderIsMissingWhenItIsGoneOrNoLongerANotebook") { root in
+            try expect(NotebookFolders.isMissing(root.appendingPathComponent("never-there")))
+            let empty = root.appendingPathComponent("empty")
+            try make(empty)
+            try expect(NotebookFolders.isMissing(empty), "a folder that is back but empty is not the notebook")
+
+            let cloud = try NotebookGitTests.Cloud(root)
+            let notebook = try cloud.device("notebook")
+            try expect(!NotebookFolders.isMissing(notebook.workTree))
+            try FileManager.default.moveItem(at: notebook.workTree, to: root.appendingPathComponent("moved"))
+            try expect(NotebookFolders.isMissing(notebook.workTree))
+        },
+
+        TestCase("aNotebookIsFoundAgainOnlyInItsOwnFolder") { root in
+            let cloud = try NotebookGitTests.Cloud(root)
+            let moved = try cloud.device("moved")
+            let other = try NotebookGit.clone(url: cloud.url, into: root.appendingPathComponent("taken"), credentials: nil)
+            try expectEqual(try moved.originUrl(), cloud.url)
+
+            // Same repository, spelled a little differently.
+            try expect(NotebookFolders.relocationProblem(
+                folder: moved.workTree, originUrl: try moved.originUrl(), expectedRemote: cloud.url.uppercased() + "/", otherNotebooks: []) == nil)
+            // Another repository.
+            try expect(NotebookFolders.relocationProblem(
+                folder: moved.workTree, originUrl: try moved.originUrl(), expectedRemote: "https://example.com/else.git", otherNotebooks: [])?.contains("另一个笔记本") == true)
+            // A folder with nothing to say where it came from.
+            try expect(NotebookFolders.relocationProblem(
+                folder: moved.workTree, originUrl: nil, expectedRemote: cloud.url, otherNotebooks: [])?.contains("另一个笔记本") == true)
+            // Not a notebook at all.
+            let plain = root.appendingPathComponent("plain")
+            try make(plain, files: ["a.md"])
+            try expect(NotebookFolders.relocationProblem(
+                folder: plain, originUrl: nil, expectedRemote: cloud.url, otherNotebooks: [])?.contains("没有笔记本") == true)
+            // Already another notebook's folder here.
+            try expect(NotebookFolders.relocationProblem(
+                folder: other.workTree, originUrl: try other.originUrl(), expectedRemote: cloud.url, otherNotebooks: [other.workTree])?.contains("已经是另一个笔记本在用") == true)
+        },
+
+        TestCase("aNotebookIsNotDownloadedAgainIntoAPlaceThatIsGoneOrBusy") { root in
+            let drive = root.appendingPathComponent("Volumes/unplugged")
+            let target = drive.appendingPathComponent("notes")
+
+            // The drive is not there: nothing may be made at its mount point.
+            try expect(NotebookFolders.redownloadProblem(target, mayCreateParents: false)?.contains("外置硬盘") == true)
+            // The app's own places are made again when needed.
+            try expect(NotebookFolders.redownloadProblem(target, mayCreateParents: true) == nil)
+            // The drive is back and the old folder is gone.
+            try make(drive)
+            try expect(NotebookFolders.redownloadProblem(target, mayCreateParents: false) == nil)
+            // Something else has taken its place.
+            try make(target, files: ["other.txt"])
+            try expect(NotebookFolders.redownloadProblem(target, mayCreateParents: false)?.contains("不是空的") == true)
+        },
+
         TestCase("aDownloadCreatesTheFoldersAboveThePlaceItGoesInto") { root in
             // The default place is ~/Jitnote/<name>, and ~/Jitnote does not exist the first time.
             let cloud = try NotebookGitTests.Cloud(root)

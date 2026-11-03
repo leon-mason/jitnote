@@ -118,6 +118,16 @@ enum FolderWatcherTests {
             try expect(seen.contains("a.md") && seen.contains("b.md"), "\(seen)")
         },
 
+        TestCase("reportsTheFolderItselfWhenItIsMovedAway") { root in
+            let watched = root.appendingPathComponent("watched")
+            try FileManager.default.createDirectory(at: watched, withIntermediateDirectories: true)
+            let seen = try reports(in: watched, until: { $0.contains("") }) {
+                try FileManager.default.moveItem(at: watched, to: root.appendingPathComponent("elsewhere"))
+            }
+            // "" stands for the folder itself: the window checks whether the notebook is still there.
+            try expect(seen.contains(""), "\(seen)")
+        },
+
         TestCase("doesNotReportTheTemporaryFileOfAnAtomicWrite") { root in
             // How the editor saves a note: the temporary name would otherwise look like a new file on every save.
             let seen = try reports(in: root, until: { $0.contains("note.md") }) {
