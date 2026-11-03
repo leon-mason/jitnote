@@ -204,11 +204,18 @@ struct NotebookView: View {
         }
     }
 
+    /// What the right pane shows. A reference resolves to its target, so an index or a shortcut never
+    /// lands on the empty page.
+    private var displayedPath: String? {
+        guard let selection else { return nil }
+        return NoteIndex.resolveReference(at: root.appendingPathComponent(selection), in: root) ?? selection
+    }
+
     @ViewBuilder
     private var detail: some View {
         if syncing {
             Waiting(message: "正在同步，请稍候…")
-        } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path),
+        } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path),
                   !NoteIndex.isEditable(path) {
             FilePreview(file: root.appendingPathComponent(path))
                 .id(path)
@@ -220,7 +227,7 @@ struct NotebookView: View {
                         .help("用其他应用打开")
                     }
                 }
-        } else if let path = selection, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
+        } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
             NoteDetail(root: root, path: path, readonly: viewMode == .preview, bridge: bridge,
                        onSaved: {},
                        onClose: {
@@ -293,8 +300,19 @@ struct NotebookView: View {
     private func load() async {
         guard !syncing else { return }
         let root = root, sort = notebooks.state.fileSort, showHidden = notebooks.state.showHiddenFiles
+        let selectionAtStart = selection
         tree = await Task.detached { NoteIndex.tree(in: root, sort: sort, showHidden: showHidden) }.value
         conflictCount = await notebooks.conflicts(notebook).count
+        guard selection == selectionAtStart else { return }
+        revealFolderReference(showHidden: showHidden)
+    }
+
+    /// The right pane is blank until a file is open. When the notebook root's references agree on
+    /// one file, show that file instead. A later refresh leaves whatever the user already has open.
+    private func revealFolderReference(showHidden: Bool) {
+        if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) { return }
+        guard let target = NoteIndex.referenceTarget(inFolder: "", root: root, showHidden: showHidden) else { return }
+        show(target)
     }
 
     /// A row tapped in the tree. A folder opens or closes (closing moves the highlight up to its
@@ -319,20 +337,23 @@ struct NotebookView: View {
     }
 
     /// A file picked in the sidebar: pictures open in the viewer; notes and text on the right to edit,
-    /// anything else (Office, PDF…) on the right in a Quick Look preview.
+    /// anything else (Office, PDF…) on the right in a Quick Look preview. A reference opens its target.
     private func open(_ path: String) {
-        if NoteAssets.isImage(path) {
-            image = root.appendingPathComponent(path)
+        let resolved = NoteIndex.resolveReference(at: root.appendingPathComponent(path), in: root) ?? path
+        if NoteAssets.isImage(resolved) {
+            image = root.appendingPathComponent(resolved)
         } else {
-            show(path)
+            show(resolved)
         }
     }
 
     /// Opens [path] on the right. Every change of the open note goes through here, so the mode
     /// starts from the default setting (or [mode]) on each note; reopening the open note keeps it.
+    /// A reference opens the file it points at.
     private func show(_ path: String, mode: ViewMode? = nil) {
-        if path == selection && mode == nil { return }
-        selection = path
+        let resolved = NoteIndex.resolveReference(at: root.appendingPathComponent(path), in: root) ?? path
+        if resolved == selection && mode == nil { return }
+        selection = resolved
         viewMode = mode ?? notebooks.state.defaultViewMode
     }
 
