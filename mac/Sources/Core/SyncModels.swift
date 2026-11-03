@@ -17,20 +17,15 @@ enum Side: String, Codable {
     case remote = "REMOTE"
 }
 
-/// A file that both this Mac and the cloud changed since the last sync.
-/// The newer version was kept in the working tree; the other one is still in history
-/// (`otherCommit`) and can be brought back with `NotebookGit.useOtherVersion`.
-/// Stored in the same JSON shape as the Android app.
-struct ConflictRecord: Codable, Equatable, Identifiable {
+/// A file that both this Mac and the cloud changed since the last sync, or that one side deleted
+/// while the other changed it. Nothing is merged until the user says which side wins; the side that
+/// loses stays in history, because the merge commit has both sides as parents.
+struct PendingConflict: Identifiable, Equatable {
     let path: String
-    let kept: Side
-    /// Author time (ms) of the last change on the kept side.
-    let keptTime: Int64
-    let otherTime: Int64
-    /// Blob of the version that was not kept; nil when that side deleted the file.
-    let otherBlob: String?
-    let otherCommit: String
-    let createdAt: Int64
+    /// Content on this Mac; nil when it was deleted here.
+    let local: Data?
+    /// Content in the cloud; nil when it was deleted there.
+    let cloud: Data?
 
     var id: String { path }
 }
@@ -40,7 +35,11 @@ struct SyncResult {
     let pulled: Bool
     /// Local commits were uploaded.
     let pushed: Bool
-    let conflicts: [ConflictRecord]
+    /// Files that were both changed and settled with the user's choices during this sync.
+    let resolved: Int
+    /// Conflicts that need a choice. When there are any, nothing was merged or uploaded: ask the user,
+    /// then sync again with `choices`.
+    let pending: [PendingConflict]
 }
 
 struct Version: Hashable, Identifiable {

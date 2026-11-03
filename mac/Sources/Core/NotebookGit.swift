@@ -7,10 +7,9 @@ import Foundation
 ///
 /// The same rules as the Android app (`NotebookGit.kt`), which the tests check case by case:
 /// - commit local changes → fetch → merge (never rebase) → push; never force-push.
-/// - a file changed on both sides keeps the version whose last change is newer
-///   (ties go to the cloud); the other version stays in history and is recorded as a
-///   `ConflictRecord` so the user can switch to it.
-/// - a file deleted on one side and changed on the other is kept.
+/// - a file changed on both sides (or deleted on one and changed on the other) is never decided by
+///   the app: `sync` stops, before touching anything, and reports the file as a `PendingConflict`;
+///   the caller asks the user and syncs again with `choices`. The side that loses stays in history.
 /// - another program's `index.lock` or unfinished merge is never cleaned up (see `prepareForSync`).
 ///
 /// Not thread-safe: callers serialize access per notebook (see `Notebooks.run`), which is why it is
@@ -50,9 +49,10 @@ final class NotebookGit: @unchecked Sendable {
         }
     }
 
-    func sync(credentials: Credentials?, author: Author, device: String) throws -> SyncResult {
+    /// [choices] settles conflicts a previous call reported in `SyncResult.pending`: which side wins, by path.
+    func sync(credentials: Credentials?, author: Author, device: String, choices: [String: Side] = [:]) throws -> SyncResult {
         do {
-            return try withRepo { try syncInternal($0, credentials: credentials, author: author, device: device) }
+            return try withRepo { try syncInternal($0, credentials: credentials, author: author, device: device, choices: choices) }
         } catch {
             throw Self.classify(error)
         }
@@ -73,10 +73,6 @@ final class NotebookGit: @unchecked Sendable {
         try withRepo { repo in try blobId(at: Git2.oid(commit), path: path, in: repo).map { try blobData($0, in: repo) } }
     }
 
-    func readBlob(_ blob: String) throws -> Data {
-        try withRepo { try blobData(Git2.oid(blob), in: $0) }
-    }
-
     /// Overwrites [path] with its content at [commit]. What is there now is recorded first (just this
     /// file), so restoring never loses the current text; the restored text goes in with the next sync.
     func restore(_ path: String, commit: String, author: Author, device: String) throws {
@@ -88,50 +84,34 @@ final class NotebookGit: @unchecked Sendable {
         }
     }
 
-    func conflicts() -> [ConflictRecord] {
-        guard let data = try? Data(contentsOf: conflictFile) else { return [] }
-        return (try? JSONDecoder().decode([ConflictRecord].self, from: data)) ?? []
-    }
-
-    func dismissConflict(_ path: String) throws {
-        try saveConflicts(conflicts().filter { $0.path != path })
-    }
-
-    /// Replaces the kept version of a conflicted file with the one that was set aside.
-    func useOtherVersion(_ record: ConflictRecord, author: Author, device: String) throws {
-        try withRepo { repo in
-            let content = try record.otherBlob.map { try blobData(Git2.oid($0), in: repo) }
-            try writeOrDelete(record.path, content)
-            try applyIdentity(repo, author)
-            _ = try commitAllInternal(repo, author: author, device: device, message: "改用另一个版本：\(Self.title(record.path))")
-        }
-        try dismissConflict(record.path)
-    }
-
     // MARK: - Sync internals
 
-    private func syncInternal(_ repo: OpaquePointer, credentials: Credentials?, author: Author, device: String) throws -> SyncResult {
+    private func syncInternal(_ repo: OpaquePointer, credentials: Credentials?, author: Author, device: String, choices: [String: Side]) throws -> SyncResult {
         try prepareForSync(repo)
         defer { releaseSyncMarker(repo) }
         try applyIdentity(repo, author)
+        // Records of earlier versions, which kept the newer side and let people switch afterwards. Unused now.
+        try? FileManager.default.removeItem(at: legacyConflictFile)
         _ = try commitAllInternal(repo, author: author, device: device, message: nil)
         let branch = try branchName(repo)
         var pulled = false
-        var conflicts: [ConflictRecord] = []
+        var resolved = 0
         for _ in 0..<Self.maxAttempts {
             try fetch(repo, credentials: credentials)
             let remote = refId(repo, Self.remoteRef(branch))
             if let remote {
-                let merge = try mergeRemote(repo, theirs: remote, branch: branch, author: author, device: device)
+                let merge = try mergeRemote(repo, theirs: remote, branch: branch, author: author, device: device, choices: choices)
+                // Stop before touching anything: the working tree is left as it was while the user decides.
+                if !merge.pending.isEmpty { return SyncResult(pulled: pulled, pushed: false, resolved: resolved, pending: merge.pending) }
                 pulled = pulled || merge.changed
-                conflicts += merge.conflicts
+                resolved += merge.resolved
             }
             guard let local = headId(repo), local != remote else {
-                return SyncResult(pulled: pulled, pushed: false, conflicts: conflicts)
+                return SyncResult(pulled: pulled, pushed: false, resolved: resolved, pending: [])
             }
             if try push(repo, branch: branch, credentials: credentials) {
                 try ensureUpstream(repo, branch: branch)
-                return SyncResult(pulled: pulled, pushed: true, conflicts: conflicts)
+                return SyncResult(pulled: pulled, pushed: true, resolved: resolved, pending: [])
             }
             // Someone pushed between our fetch and push: fetch and merge again.
         }
@@ -153,10 +133,20 @@ final class NotebookGit: @unchecked Sendable {
 
     private struct MergeOutcome {
         let changed: Bool
-        let conflicts: [ConflictRecord]
+        /// Files that were both changed and settled with the user's choices.
+        let resolved: Int
+        /// Conflicts waiting for a choice; nothing was merged when there are any.
+        let pending: [PendingConflict]
     }
 
-    private func mergeRemote(_ repo: OpaquePointer, theirs: git_oid, branch: String, author: Author, device: String) throws -> MergeOutcome {
+    private func mergeRemote(
+        _ repo: OpaquePointer,
+        theirs: git_oid,
+        branch: String,
+        author: Author,
+        device: String,
+        choices: [String: Side]
+    ) throws -> MergeOutcome {
         guard let head = headId(repo) else {
             // Nothing committed on this Mac yet: adopt the cloud's history as is.
             var ref: OpaquePointer?
@@ -164,13 +154,20 @@ final class NotebookGit: @unchecked Sendable {
             try Git2.check(git_reference_create(&ref, repo, "refs/heads/\(branch)", &target, 1, "sync: adopt cloud"))
             git_reference_free(ref)
             try checkoutHead(repo, force: true)
-            return MergeOutcome(changed: true, conflicts: [])
+            return MergeOutcome(changed: true, resolved: 0, pending: [])
         }
-        if isAncestor(repo, theirs, of: head) { return MergeOutcome(changed: false, conflicts: []) }
+        if isAncestor(repo, theirs, of: head) { return MergeOutcome(changed: false, resolved: 0, pending: []) }
 
         if isAncestor(repo, head, of: theirs) {
             try fastForward(repo, to: theirs, branch: branch)
-            return MergeOutcome(changed: true, conflicts: [])
+            return MergeOutcome(changed: true, resolved: 0, pending: [])
+        }
+
+        // Find out first, in memory, whether both sides touched the same thing. Merging for real would
+        // write conflict markers into the notebook folder, where another program could read them.
+        let conflicts = try findConflicts(repo, ours: head, theirs: theirs)
+        if conflicts.contains(where: { choices[$0.path] == nil }) {
+            return MergeOutcome(changed: false, resolved: 0, pending: conflicts)
         }
 
         var annotated: OpaquePointer?
@@ -192,76 +189,89 @@ final class NotebookGit: @unchecked Sendable {
         let index = try repoIndex(repo)
         defer { git_index_free(index) }
         if git_index_has_conflicts(index) == 1 {
-            let records = try resolveConflicts(repo, index: index, ours: head, theirs: theirs, author: author, device: device)
-            return MergeOutcome(changed: true, conflicts: records)
+            let count = try resolveConflicts(repo, index: index, ours: head, theirs: theirs, author: author, device: device, choices: choices)
+            return MergeOutcome(changed: true, resolved: count, pending: [])
         }
         try commitIndex(repo, index: index, parents: [head, theirs], author: author,
                         message: Self.commitMessage("同步：合并云端修改", device: device))
-        return MergeOutcome(changed: true, conflicts: [])
+        return MergeOutcome(changed: true, resolved: 0, pending: [])
     }
 
+    /// The files [ours] and [theirs] cannot be merged on their own, with what each side has.
+    /// Nothing in the repository or the working tree changes.
+    private func findConflicts(_ repo: OpaquePointer, ours: git_oid, theirs: git_oid) throws -> [PendingConflict] {
+        var ourCommit: OpaquePointer?, theirCommit: OpaquePointer?
+        var ourId = ours, theirId = theirs
+        try Git2.check(git_commit_lookup(&ourCommit, repo, &ourId))
+        defer { git_commit_free(ourCommit) }
+        try Git2.check(git_commit_lookup(&theirCommit, repo, &theirId))
+        defer { git_commit_free(theirCommit) }
+        var options = git_merge_options()
+        try Git2.check(git_merge_options_init(&options, UInt32(GIT_MERGE_OPTIONS_VERSION)))
+        var merged: OpaquePointer?
+        try Git2.check(git_merge_commits(&merged, repo, ourCommit, theirCommit, &options))
+        defer { git_index_free(merged) }
+        guard git_index_has_conflicts(merged) == 1 else { return [] }
+
+        var found: [PendingConflict] = []
+        for stage in try conflictStages(merged!) {
+            found.append(PendingConflict(
+                path: stage.path,
+                local: try stage.ours.map { try blobData($0, in: repo) },
+                cloud: try stage.theirs.map { try blobData($0, in: repo) }
+            ))
+        }
+        return found
+    }
+
+    /// "ours" = this Mac, "theirs" = cloud. A missing side means that side deleted the file.
+    private func conflictStages(_ index: OpaquePointer) throws -> [(path: String, ours: git_oid?, theirs: git_oid?)] {
+        var stages: [(path: String, ours: git_oid?, theirs: git_oid?)] = []
+        var iterator: OpaquePointer?
+        try Git2.check(git_index_conflict_iterator_new(&iterator, index))
+        defer { git_index_conflict_iterator_free(iterator) }
+        var ancestor: UnsafePointer<git_index_entry>?
+        var our: UnsafePointer<git_index_entry>?
+        var their: UnsafePointer<git_index_entry>?
+        while git_index_conflict_next(&ancestor, &our, &their, iterator) == 0 {
+            guard let entry = our ?? their ?? ancestor else { continue }
+            if our == nil && their == nil { continue }
+            stages.append((String(cString: entry.pointee.path), our?.pointee.id, their?.pointee.id))
+        }
+        return stages
+    }
+
+    /// Settles every conflicted file in the half-finished merge with the side the user chose, then
+    /// commits it. Both sides are parents of that commit, so the side that lost is still in history.
     private func resolveConflicts(
         _ repo: OpaquePointer,
         index: OpaquePointer,
         ours: git_oid,
         theirs: git_oid,
         author: Author,
-        device: String
-    ) throws -> [ConflictRecord] {
-        let base = mergeBase(repo, ours, theirs)
-
-        // "ours" = this Mac, "theirs" = cloud. A missing side means that side deleted the file.
-        var stages: [(path: String, ours: git_oid?, theirs: git_oid?)] = []
-        var iterator: OpaquePointer?
-        try Git2.check(git_index_conflict_iterator_new(&iterator, index))
-        var ancestor: UnsafePointer<git_index_entry>?
-        var our: UnsafePointer<git_index_entry>?
-        var their: UnsafePointer<git_index_entry>?
-        while git_index_conflict_next(&ancestor, &our, &their, iterator) == 0 {
-            guard let entry = our ?? their ?? ancestor else { continue }
-            stages.append((String(cString: entry.pointee.path), our?.pointee.id, their?.pointee.id))
-        }
-        git_index_conflict_iterator_free(iterator)
-
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        var records: [ConflictRecord] = []
+        device: String,
+        choices: [String: Side]
+    ) throws -> Int {
+        let stages = try conflictStages(index)
         for stage in stages {
-            if stage.ours == nil && stage.theirs == nil { continue }
-            let oursTime = try lastChange(repo, tip: ours, base: base, path: stage.path)
-            let theirsTime = try lastChange(repo, tip: theirs, base: base, path: stage.path)
-            let keepLocal: Bool
-            if stage.ours == nil {
-                keepLocal = false
-            } else if stage.theirs == nil {
-                keepLocal = true
-            } else {
-                keepLocal = oursTime > theirsTime
+            guard let side = choices[stage.path] else {
+                // findConflicts saw this merge first, so this means the two disagree. Do not guess.
+                throw SyncError(.other, "合并时发现新的冲突，请重新同步")
             }
-            let kept = (keepLocal ? stage.ours : stage.theirs)!
-            try writeOrDelete(stage.path, blobData(kept, in: repo))
-            try Git2.check(git_index_add_bypath(index, stage.path))
-            let other = keepLocal ? stage.theirs : stage.ours
-            records.append(ConflictRecord(
-                path: stage.path,
-                kept: keepLocal ? .local : .remote,
-                keptTime: keepLocal ? oursTime : theirsTime,
-                otherTime: keepLocal ? theirsTime : oursTime,
-                otherBlob: other.map(Git2.string),
-                otherCommit: Git2.string(keepLocal ? theirs : ours),
-                createdAt: now
-            ))
+            let chosen = side == .local ? stage.ours : stage.theirs
+            if let chosen {
+                try writeOrDelete(stage.path, blobData(chosen, in: repo))
+                try Git2.check(git_index_add_bypath(index, stage.path))
+            } else {
+                // The chosen side deleted the file.
+                try writeOrDelete(stage.path, nil)
+                try Git2.check(git_index_remove_bypath(index, stage.path))
+            }
         }
         try Git2.check(git_index_write(index))
         try commitIndex(repo, index: index, parents: [ours, theirs], author: author,
-                        message: Self.commitMessage("同步：合并云端修改（\(records.count) 个文件两边都改了，已采用较新版本）", device: device))
-
-        try saveConflicts(conflicts().filter { old in !records.contains { $0.path == old.path } } + records)
-        return records
-    }
-
-    /// Author time (ms) of the newest commit on [tip] that touched [path] after [base]; 0 if none.
-    private func lastChange(_ repo: OpaquePointer, tip: git_oid, base: git_oid?, path: String) throws -> Int64 {
-        try commits(repo, from: tip, hiding: base, touching: path, max: 1).first?.time ?? 0
+                        message: Self.commitMessage("同步：合并云端修改（\(stages.count) 个文件两边都改了，按你的选择处理）", device: device))
+        return stages.count
     }
 
     private func push(_ repo: OpaquePointer, branch: String, credentials: Credentials?) throws -> Bool {
@@ -453,7 +463,7 @@ final class NotebookGit: @unchecked Sendable {
 
     private var gitDir: URL { workTree.appendingPathComponent(".git") }
 
-    private var conflictFile: URL { gitDir.appendingPathComponent("jitnote/conflicts.json") }
+    private var legacyConflictFile: URL { gitDir.appendingPathComponent("jitnote/conflicts.json") }
 
     private func withRepo<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         var repo: OpaquePointer?
@@ -506,11 +516,6 @@ final class NotebookGit: @unchecked Sendable {
         if ancestor == descendant { return true }
         var a = ancestor, d = descendant
         return git_graph_descendant_of(repo, &d, &a) == 1
-    }
-
-    private func mergeBase(_ repo: OpaquePointer, _ a: git_oid, _ b: git_oid) -> git_oid? {
-        var out = git_oid(), first = a, second = b
-        return git_merge_base(&out, repo, &first, &second) == 0 ? out : nil
     }
 
     private func tree(of commitId: git_oid, in repo: OpaquePointer) throws -> OpaquePointer {
@@ -682,15 +687,6 @@ final class NotebookGit: @unchecked Sendable {
         } else {
             try? FileManager.default.removeItem(at: file)
         }
-    }
-
-    private func saveConflicts(_ list: [ConflictRecord]) throws {
-        if list.isEmpty {
-            try? FileManager.default.removeItem(at: conflictFile)
-            return
-        }
-        try FileManager.default.createDirectory(at: conflictFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(list).write(to: conflictFile)
     }
 
     // MARK: - Statics

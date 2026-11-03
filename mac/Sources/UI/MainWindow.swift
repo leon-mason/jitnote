@@ -71,12 +71,10 @@ struct NotebookView: View {
     @State private var viewMode = ViewMode.edit
     /// nil until the first load, so an empty notebook is not announced before the files are read.
     @State private var tree: [NoteIndex.Entry]?
-    @State private var conflictCount = 0
     @State private var refresh = 0
     @State private var prompt: Prompt?
     @State private var deleting: URL?
     @State private var historyPath: String?
-    @State private var showingConflicts = false
     @State private var image: URL?
     @State private var toast: Notebooks.SyncMessage?
 
@@ -105,9 +103,7 @@ struct NotebookView: View {
     var body: some View {
         NavigationSplitView {
             Sidebar(notebook: notebook, tree: tree ?? [], expanded: expanded, highlighted: $highlighted,
-                    conflictCount: conflictCount,
                     onTap: tap,
-                    onConflicts: { showingConflicts = true },
                     onNewNote: { prompt = .newNote($0) },
                     onNewFolder: { prompt = .newFolder($0) },
                     onHistory: { historyPath = $0 },
@@ -130,11 +126,6 @@ struct NotebookView: View {
             ToolbarItemGroup {
                 Button { prompt = .newNote(currentFolder) } label: { Label("新建笔记", systemImage: "square.and.pencil") }
                     .help("新建笔记（⌘N）")
-                // The sidebar card is gone when the sidebar is collapsed, so the toolbar keeps a way in.
-                if conflictCount > 0 {
-                    Button { showingConflicts = true } label: { Label("冲突", systemImage: "exclamationmark.triangle") }
-                        .help("有 \(conflictCount) 篇笔记在两个地方都改过，点这里查看")
-                }
                 if syncing {
                     ProgressView().controlSize(.small).help("正在同步…")
                 } else {
@@ -192,12 +183,7 @@ struct NotebookView: View {
         .sheet(item: Binding(get: { historyPath.map { PathItem(path: $0) } }, set: { historyPath = $0?.path })) { item in
             HistoryView(notebook: notebook, path: item.path) { historyPath = nil }
         }
-        .sheet(isPresented: $showingConflicts) {
-            ConflictsView(notebook: notebook) {
-                showingConflicts = false
-                refresh += 1
-            }
-        }
+        .modifier(SyncQuestionSheet())
         .sheet(item: Binding(get: { image.map { PathItem(path: $0.path) } }, set: { image = $0.map { URL(fileURLWithPath: $0.path) } })) { item in
             ImageViewer(file: URL(fileURLWithPath: item.path)) { image = nil }
         }
@@ -309,7 +295,6 @@ struct NotebookView: View {
         let root = root, sort = notebooks.state.fileSort, showHidden = notebooks.state.showHiddenFiles
         let selectionAtStart = selection
         tree = await Task.detached { NoteIndex.tree(in: root, sort: sort, showHidden: showHidden) }.value
-        conflictCount = await notebooks.conflicts(notebook).count
         guard selection == selectionAtStart else { return }
         revealFolderReference(showHidden: showHidden)
     }
@@ -506,9 +491,7 @@ private struct Sidebar: View {
     let expanded: Set<String>
     /// What is marked: a file or folder path, or "" for nothing.
     @Binding var highlighted: String
-    let conflictCount: Int
     let onTap: (NoteIndex.Entry) -> Void
-    let onConflicts: () -> Void
     let onNewNote: (String) -> Void
     let onNewFolder: (String) -> Void
     let onHistory: (String) -> Void
@@ -543,15 +526,6 @@ private struct Sidebar: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
-                if conflictCount > 0 {
-                    Button(action: onConflicts) {
-                        Label("有 \(conflictCount) 篇笔记在两个地方都改过，已自动保留较新的版本。点这里查看。", systemImage: "info.circle")
-                            .multilineTextAlignment(.leading)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                    .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-                }
                 HStack {
                     Text("文件列表")
                         .font(.subheadline.weight(.semibold))

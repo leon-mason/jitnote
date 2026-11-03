@@ -39,8 +39,32 @@ enum NotebookGitTests {
     }
 
     @discardableResult
-    static func sync(_ git: NotebookGit, _ name: String = "phone") throws -> SyncResult {
-        try git.sync(credentials: nil, author: author, device: name)
+    static func sync(_ git: NotebookGit, _ name: String = "phone", choices: [String: Side] = [:]) throws -> SyncResult {
+        try git.sync(credentials: nil, author: author, device: name, choices: choices)
+    }
+
+    /// Whether any version of [path] in [git]'s history had exactly [text].
+    static func historyHas(_ git: NotebookGit, _ path: String, _ text: String) throws -> Bool {
+        try git.history(path).contains { version in
+            try git.read(at: version.commit, path: path).map { String(decoding: $0, as: UTF8.self) } == text
+        }
+    }
+
+    /// Two devices that edited note.md differently; the cloud has a's edit and b has its own committed.
+    static func divergedNote(_ cloud: Cloud) throws -> (a: NotebookGit, b: NotebookGit) {
+        let a = try cloud.device("a")
+        try write(a, "note.md", "base")
+        try sync(a)
+        let b = try cloud.device("b")
+        try write(a, "note.md", "from a")
+        try sync(a)
+        try write(b, "note.md", "from b")
+        try b.commitAll(author: author, device: "b")
+        return (a, b)
+    }
+
+    static func cloudHead(_ cloud: Cloud) throws -> String {
+        try cloud.device("probe-\(UUID().uuidString)").history("note.md").first!.commit
     }
 
     /// Commit summaries on HEAD, newest first.
@@ -182,7 +206,7 @@ enum NotebookGitTests {
             try expect(result.pulled)
             try expect(!result.pushed)
             try expectEqual(try read(b, "note.md"), "v2")
-            try expect(result.conflicts.isEmpty)
+            try expect(result.pending.isEmpty)
         },
 
         TestCase("mergesEditsToDifferentFiles") { root in
@@ -200,7 +224,7 @@ enum NotebookGitTests {
 
             try expect(result.pulled)
             try expect(result.pushed)
-            try expect(result.conflicts.isEmpty)
+            try expect(result.pending.isEmpty)
             try expectEqual(try read(b, "a.md"), "a2")
             try expectEqual(try read(b, "b.md"), "b2")
 
@@ -209,78 +233,143 @@ enum NotebookGitTests {
             try expect(try log(b).first!.hasPrefix("同步：合并云端修改"))
         },
 
-        TestCase("sameLineEditedOnBothSidesKeepsNewerLocalVersion") { root in
+        TestCase("sameLineEditedOnBothSidesAsksAndTouchesNothing") { root in
             let cloud = try Cloud(root)
-            let a = try cloud.device("a")
-            try write(a, "note.md", "base")
-            try sync(a)
-            let b = try cloud.device("b")
+            let (a, b) = try divergedNote(cloud)
+            let cloudBefore = try cloudHead(cloud)
 
-            try write(a, "note.md", "from a")
-            try a.commitAll(author: author, device: "a")
-            try sync(a)
-            tick()
-            try write(b, "note.md", "from b")
-            try b.commitAll(author: author, device: "b")
             let result = try sync(b)
 
+            try expectEqual(result.pending, [PendingConflict(path: "note.md", local: Data("from b".utf8), cloud: Data("from a".utf8))])
+            try expect(!result.pushed && !result.pulled)
+            // The folder stays as it was while the user decides: no conflict markers, no merge under way.
             try expectEqual(try read(b, "note.md"), "from b")
-            try expectEqual(result.conflicts.count, 1)
-            let conflict = result.conflicts[0]
-            try expectEqual(conflict.kept, .local)
-            try expectEqual(String(decoding: try b.readBlob(conflict.otherBlob!), as: UTF8.self), "from a")
-            try expectEqual(b.conflicts(), [conflict])
-            try expect(result.pushed)
+            try withRepo(b) { try expectEqual(git_repository_state($0), Int32(GIT_REPOSITORY_STATE_NONE.rawValue)) }
+            try expect(!FileManager.default.fileExists(atPath: syncMarker(b).path))
+            try expectEqual(try cloudHead(cloud), cloudBefore)
+            try expect(try b.hasUnsyncedWork())
+            _ = a
+        },
 
+        TestCase("choosingTheLocalVersionKeepsItAndTheCloudVersionStaysInHistory") { root in
+            let cloud = try Cloud(root)
+            let (a, b) = try divergedNote(cloud)
+            try expectEqual(try sync(b).pending.count, 1)
+
+            let result = try sync(b, choices: ["note.md": .local])
+
+            try expect(result.pending.isEmpty)
+            try expectEqual(result.resolved, 1)
+            try expect(result.pushed)
+            try expectEqual(try read(b, "note.md"), "from b")
             try sync(a)
             try expectEqual(try read(a, "note.md"), "from b")
+            try expect(try historyHas(a, "note.md", "from a"), "the version that lost must stay in history")
+            try expect(try log(b).first!.hasPrefix("同步：合并云端修改（1 个文件两边都改了"))
         },
 
-        TestCase("sameLineEditedOnBothSidesKeepsNewerCloudVersionAndCanSwitchBack") { root in
+        TestCase("choosingTheCloudVersionTakesItAndTheLocalVersionStaysInHistory") { root in
+            let cloud = try Cloud(root)
+            let (a, b) = try divergedNote(cloud)
+
+            let result = try sync(b, choices: ["note.md": .remote])
+
+            try expect(result.pending.isEmpty && result.pushed)
+            try expectEqual(try read(b, "note.md"), "from a")
+            try expect(try historyHas(b, "note.md", "from b"), "the version that lost must stay in history")
+            try sync(a)
+            try expectEqual(try read(a, "note.md"), "from a")
+        },
+
+        TestCase("cancellingLeavesTheQuestionForTheNextSync") { root in
+            let cloud = try Cloud(root)
+            let (_, b) = try divergedNote(cloud)
+            let cloudBefore = try cloudHead(cloud)
+
+            try expectEqual(try sync(b).pending.count, 1)
+            // The user cancelled: nothing was kept from that attempt, so the next sync asks again.
+            let again = try sync(b)
+
+            try expectEqual(again.pending.map(\.path), ["note.md"])
+            try expectEqual(try cloudHead(cloud), cloudBefore)
+            try expectEqual(try read(b, "note.md"), "from b")
+        },
+
+        TestCase("onlyTheFilesBothSidesChangedAreAsked") { root in
             let cloud = try Cloud(root)
             let a = try cloud.device("a")
             try write(a, "note.md", "base")
+            try write(a, "mine.md", "m0")
+            try write(a, "theirs.md", "t0")
             try sync(a)
             let b = try cloud.device("b")
-
-            try write(b, "note.md", "older from b")
-            try b.commitAll(author: author, device: "b")
-            tick()
-            try write(a, "note.md", "newer from a")
-            try a.commitAll(author: author, device: "a")
+            try write(a, "note.md", "from a")
+            try write(a, "theirs.md", "t1")
             try sync(a)
-            let conflicts = try sync(b).conflicts
-            try expectEqual(conflicts.count, 1)
-            let conflict = conflicts[0]
+            try write(b, "note.md", "from b")
+            try write(b, "mine.md", "m1")
 
-            try expectEqual(conflict.kept, .remote)
-            try expectEqual(try read(b, "note.md"), "newer from a")
-
-            try b.useOtherVersion(conflict, author: author, device: "b")
-            try expectEqual(try read(b, "note.md"), "older from b")
-            try expect(b.conflicts().isEmpty)
-            try sync(b)
-            try sync(a)
-            try expectEqual(try read(a, "note.md"), "older from b")
-        },
-
-        TestCase("editWinsOverDeleteOnTheOtherSide") { root in
-            let cloud = try Cloud(root)
-            let a = try cloud.device("a")
-            try write(a, "note.md", "base")
-            try sync(a)
-            let b = try cloud.device("b")
-
-            try FileManager.default.removeItem(at: a.workTree.appendingPathComponent("note.md"))
-            try sync(a)
-            try write(b, "note.md", "edited")
             let result = try sync(b)
+            try expectEqual(result.pending.map(\.path), ["note.md"])
 
-            try expectEqual(try read(b, "note.md"), "edited")
-            try expectEqual(result.conflicts.count, 1)
-            try expect(result.conflicts[0].otherBlob == nil)
+            let done = try sync(b, choices: ["note.md": .remote, "unrelated.md": .local])
+            try expect(done.pending.isEmpty)
+            try expectEqual(try read(b, "note.md"), "from a")
+            try expectEqual(try read(b, "mine.md"), "m1")
+            try expectEqual(try read(b, "theirs.md"), "t1")
+        },
+
+        TestCase("deletedOnOneSideAndEditedOnTheOtherAsksAndHonorsEitherChoice") { root in
+            for keepEdit in [true, false] {
+                let cloud = try Cloud(root.appendingPathComponent(keepEdit ? "keep" : "delete"))
+                let a = try cloud.device("a")
+                try write(a, "note.md", "base")
+                try sync(a)
+                let b = try cloud.device("b")
+                try FileManager.default.removeItem(at: a.workTree.appendingPathComponent("note.md"))
+                try sync(a)
+                try write(b, "note.md", "edited")
+
+                let result = try sync(b)
+                try expectEqual(result.pending, [PendingConflict(path: "note.md", local: Data("edited".utf8), cloud: nil)])
+
+                try sync(b, choices: ["note.md": keepEdit ? .local : .remote])
+                try sync(a)
+                let exists = FileManager.default.fileExists(atPath: b.workTree.appendingPathComponent("note.md").path)
+                try expectEqual(exists, keepEdit)
+                try expectEqual(FileManager.default.fileExists(atPath: a.workTree.appendingPathComponent("note.md").path), keepEdit)
+                try expect(try historyHas(b, "note.md", "edited"), "the edit must stay in history either way")
+            }
+        },
+
+        TestCase("deletedLocallyAndEditedInTheCloudReportsTheDeletion") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "note.md", "base")
             try sync(a)
-            try expectEqual(try read(a, "note.md"), "edited")
+            let b = try cloud.device("b")
+            try write(a, "note.md", "edited in the cloud")
+            try sync(a)
+            try FileManager.default.removeItem(at: b.workTree.appendingPathComponent("note.md"))
+
+            let result = try sync(b)
+            try expectEqual(result.pending, [PendingConflict(path: "note.md", local: nil, cloud: Data("edited in the cloud".utf8))])
+
+            try sync(b, choices: ["note.md": .local])
+            try expect(!FileManager.default.fileExists(atPath: b.workTree.appendingPathComponent("note.md").path))
+        },
+
+        TestCase("removesConflictRecordsOfEarlierVersions") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            let legacy = a.workTree.appendingPathComponent(".git/jitnote/conflicts.json")
+            try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("[]".utf8).write(to: legacy)
+            try write(a, "note.md", "x")
+
+            try sync(a)
+
+            try expect(!FileManager.default.fileExists(atPath: legacy.path))
         },
 
         TestCase("respectsGitignoreAndLeavesItUntouched") { root in
@@ -403,10 +492,14 @@ enum NotebookGitTests {
             // A sync of this app that died leaves its marker behind; that is what makes the merge ours to abort.
             try markSyncInProgress(b)
 
-            try sync(b)
+            // The merge is aborted. The two edits really do clash, so the sync then asks about them.
+            let asked = try sync(b)
+            try expectEqual(asked.pending.map(\.path), ["note.md"])
             try withRepo(b) { try expectEqual(git_repository_state($0), Int32(GIT_REPOSITORY_STATE_NONE.rawValue)) }
-            try expect(try !b.hasUnsyncedWork())
             try expect(!FileManager.default.fileExists(atPath: syncMarker(b).path))
+
+            try sync(b, choices: ["note.md": .local])
+            try expect(try !b.hasUnsyncedWork())
         },
 
         TestCase("leavesAnotherToolsUnfinishedMergeAlone") { root in

@@ -17,6 +17,17 @@ final class Notebooks: ObservableObject {
     @Published var syncMessage: SyncMessage?
     /// Bumped whenever files may have changed underneath the windows (sync, restore, ...).
     @Published private(set) var revision = 0
+    /// A sync that stopped to ask which side wins; the window shows the question until it is answered.
+    @Published private(set) var pendingSync: PendingSync?
+
+    /// Files that both this Mac and the cloud changed, waiting for a choice before the sync goes on.
+    struct PendingSync: Identifiable {
+        let id = UUID()
+        let notebook: Notebook
+        let conflicts: [PendingConflict]
+        /// Choices made in an earlier round that still apply (the cloud moved on while the user decided).
+        let choices: [String: Side]
+    }
 
     let root: URL
     let device: String
@@ -245,7 +256,21 @@ final class Notebooks: ObservableObject {
         Task { await sync(notebook) }
     }
 
-    private func sync(_ notebook: Notebook) async {
+    /// Goes on with a sync that asked a question, using the user's answers.
+    func continueSync(_ choices: [String: Side]) {
+        guard let pending = pendingSync, !isSyncing(pending.notebook) else { return }
+        pendingSync = nil
+        Task { await sync(pending.notebook, choices: choices) }
+    }
+
+    /// The user would rather not decide now. Nothing was merged or uploaded; the next sync asks again.
+    func cancelPendingSync() {
+        guard let pending = pendingSync else { return }
+        pendingSync = nil
+        syncMessage = SyncMessage(notebookId: pending.notebook.id, ok: false, text: "已取消同步。两边的修改都还在，下次同步时再选择。")
+    }
+
+    private func sync(_ notebook: Notebook, choices: [String: Side] = [:]) async {
         syncing.insert(notebook.id)
         defer {
             syncing.remove(notebook.id)
@@ -256,12 +281,23 @@ final class Notebooks: ObservableObject {
                 throw SyncError(.auth, "这个笔记本用的云端账号已断开，请重新连接")
             }
             let credentials = try await credentials(account), author = author(account), device = device
-            let result = try await run(notebook) { try $0.sync(credentials: credentials, author: author, device: device) }
-            updateNotebook(notebook.id) {
-                $0.lastSyncAt = nowMillis()
-                $0.lastSyncError = nil
+            let result = try await run(notebook) {
+                try $0.sync(credentials: credentials, author: author, device: device, choices: choices)
             }
-            syncMessage = SyncMessage(notebookId: notebook.id, ok: true, text: Self.describe(result))
+            if !result.pending.isEmpty {
+                // Not finished: no "synced" time and no message, just the question.
+                pendingSync = PendingSync(
+                    notebook: notebook,
+                    conflicts: result.pending,
+                    choices: choices.filter { choice in result.pending.contains { $0.path == choice.key } }
+                )
+            } else {
+                updateNotebook(notebook.id) {
+                    $0.lastSyncAt = nowMillis()
+                    $0.lastSyncError = nil
+                }
+                syncMessage = SyncMessage(notebookId: notebook.id, ok: true, text: Self.describe(result))
+            }
         } catch {
             let message = NotebookGit.classify(error).message
             updateNotebook(notebook.id) { $0.lastSyncError = message }
@@ -271,7 +307,7 @@ final class Notebooks: ObservableObject {
     }
 
     private static func describe(_ result: SyncResult) -> String {
-        if !result.conflicts.isEmpty { return "已同步。\(result.conflicts.count) 个文件两边都改了，已采用较新版本" }
+        if result.resolved > 0 { return "已同步。\(result.resolved) 个文件两边都改了，已按你的选择处理" }
         switch (result.pulled, result.pushed) {
         case (true, true): return "已同步：收到云端修改，并上传了本机修改"
         case (true, false): return "已同步：收到云端修改"
@@ -280,22 +316,7 @@ final class Notebooks: ObservableObject {
         }
     }
 
-    // MARK: - History and conflicts
-
-    func conflicts(_ notebook: Notebook) async -> [ConflictRecord] {
-        (try? await run(notebook) { $0.conflicts() }) ?? []
-    }
-
-    func useOtherVersion(_ notebook: Notebook, _ record: ConflictRecord) async throws {
-        guard let account = account(notebook.accountId) else { return }
-        let author = author(account), device = device
-        try await run(notebook) { try $0.useOtherVersion(record, author: author, device: device) }
-        revision += 1
-    }
-
-    func dismissConflict(_ notebook: Notebook, _ record: ConflictRecord) async {
-        try? await run(notebook) { try $0.dismissConflict(record.path) }
-    }
+    // MARK: - History
 
     func history(_ notebook: Notebook, path: String) async throws -> [Version] {
         try await run(notebook) { try $0.history(path) }

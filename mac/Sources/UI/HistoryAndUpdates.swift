@@ -99,104 +99,121 @@ struct HistoryView: View {
     }
 }
 
-/// Notes changed both here and elsewhere: the newer version was kept; this lets people look at the
-/// other one, switch to it, or accept what is there.
-struct ConflictsView: View {
-    let notebook: Notebook
-    let onClose: () -> Void
+/// The question a sync asks when a note changed both here and elsewhere: which side wins. Nothing has been
+/// merged yet; the side that does not win stays in the history.
+struct SyncConflictsView: View {
+    let pending: Notebooks.PendingSync
+    let onCancel: () -> Void
+    let onContinue: ([String: Side]) -> Void
 
-    @EnvironmentObject private var notebooks: Notebooks
-    @State private var records: [ConflictRecord]?
-    @State private var viewing: ConflictRecord?
-    @State private var otherText: String?
-    @State private var switching: ConflictRecord?
+    @State private var choices: [String: Side]
+    @State private var comparing: PendingConflict?
+
+    init(pending: Notebooks.PendingSync, onCancel: @escaping () -> Void, onContinue: @escaping ([String: Side]) -> Void) {
+        self.pending = pending
+        self.onCancel = onCancel
+        self.onContinue = onContinue
+        _choices = State(initialValue: pending.choices)
+    }
+
+    private var allChosen: Bool { pending.conflicts.allSatisfy { choices[$0.path] != nil } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("两边都改过的笔记").font(.title3.weight(.semibold))
-                Spacer()
-                Button("完成", action: onClose).keyboardShortcut(.cancelAction)
-            }
-            Text("这些笔记在这台电脑和别的地方（另一台设备或手机）都被修改过。App 已经自动保留了较新的版本，另一个版本也没有丢，你可以随时换回去。")
+            Text("「\(pending.notebook.name)」有 \(pending.conflicts.count) 篇笔记在两个地方都改过")
+                .font(.title3.weight(.semibold))
+            Text("请选择每一篇以哪边为准。没选中的那一版不会丢，仍然留在历史版本里。")
                 .foregroundStyle(.secondary)
-            if let records, records.isEmpty {
-                Text("都处理好了，没有需要确认的笔记。").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let records {
-                List(records) { record in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(NotebookGit.title(record.path)).font(.headline)
-                        Text("现在用的：\(place(record.kept))的版本（\(time(record.keptTime))修改）").font(.callout)
-                        Text(record.otherBlob == nil
-                            ? "另一个：\(place(other(record.kept)))把它删除了"
-                            : "另一个：\(place(other(record.kept)))的版本（\(time(record.otherTime))修改）").font(.callout).foregroundStyle(.secondary)
-                        HStack {
-                            if record.otherBlob != nil { Button("看看另一个") { show(record) } }
-                            Button("换成另一个") { switching = record }
-                            Button("就用现在的") {
-                                Task {
-                                    await notebooks.dismissConflict(notebook, record)
-                                    await load()
-                                }
-                            }
+            HStack {
+                Button("全部以这台电脑为准") { choose(.local) }
+                Button("全部以云端为准") { choose(.remote) }
+            }
+            List(pending.conflicts) { conflict in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(NotebookGit.title(conflict.path)).font(.headline)
+                    if let note = deletion(conflict) { Text(note).font(.callout).foregroundStyle(.secondary) }
+                    HStack {
+                        Picker("以哪边为准", selection: Binding(get: { choices[conflict.path] }, set: { choices[conflict.path] = $0 })) {
+                            Text("这台电脑").tag(Side?.some(.local))
+                            Text("云端").tag(Side?.some(.remote))
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: 220)
+                        Button("看看两边") { comparing = conflict }
                     }
-                    .padding(.vertical, 6)
                 }
-            } else {
-                Waiting(message: "正在读取…")
+                .padding(.vertical, 6)
+            }
+            HStack {
+                Spacer()
+                Button("取消同步", action: onCancel).keyboardShortcut(.cancelAction)
+                Button("继续同步") { onContinue(choices) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!allChosen)
             }
         }
         .padding(20)
-        .frame(width: 600, height: 480)
-        .task { await load() }
-        .sheet(item: $viewing) { record in
+        .frame(width: 640, height: 520)
+        .sheet(item: $comparing) { conflict in
             VStack(alignment: .leading, spacing: 12) {
-                Text("另一个版本：\(NotebookGit.title(record.path))").font(.headline)
-                ScrollView {
-                    Text(otherText.map { $0.isEmpty ? "（空白）" : $0 } ?? "正在读取…")
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                Text(NotebookGit.title(conflict.path)).font(.headline)
+                HStack(alignment: .top, spacing: 12) {
+                    side("这台电脑", conflict.local)
+                    side("云端", conflict.cloud)
                 }
                 HStack {
                     Spacer()
-                    Button("关闭") { viewing = nil }.keyboardShortcut(.cancelAction)
+                    Button("关闭") { comparing = nil }.keyboardShortcut(.cancelAction)
                 }
             }
             .padding(20)
-            .frame(width: 560, height: 420)
+            .frame(width: 760, height: 480)
         }
-        .alert("换成另一个版本？", isPresented: Binding(get: { switching != nil }, set: { if !$0 { switching = nil } })) {
-            Button("换成另一个") {
-                guard let record = switching else { return }
-                Task {
-                    try? await notebooks.useOtherVersion(notebook, record)
-                    await load()
-                }
+    }
+
+    private func choose(_ side: Side) {
+        for conflict in pending.conflicts { choices[conflict.path] = side }
+    }
+
+    private func deletion(_ conflict: PendingConflict) -> String? {
+        if conflict.local == nil { return "这台电脑上已经把它删除了，云端改过了。" }
+        if conflict.cloud == nil { return "云端已经把它删除了，这台电脑改过了。" }
+        return nil
+    }
+
+    private func side(_ title: String, _ content: Data?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView {
+                Text(preview(content))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(switching?.otherBlob == nil
-                ? "另一个版本里这篇笔记已被删除，换过去会删除这篇笔记（历史版本里仍可找回）。"
-                : "当前内容会被另一个版本替换，当前内容仍会留在历史版本里。记得之后点同步。")
+            .padding(8)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func load() async { records = await notebooks.conflicts(notebook) }
+    private func preview(_ content: Data?) -> String {
+        guard let content else { return "（已删除）" }
+        guard let text = String(data: content, encoding: .utf8) else { return "（不是文字，无法预览）" }
+        return text.isEmpty ? "（空白）" : text
+    }
+}
 
-    private func show(_ record: ConflictRecord) {
-        otherText = nil
-        viewing = record
-        guard let blob = record.otherBlob else { return }
-        Task {
-            let data = try? await notebooks.run(notebook) { try $0.readBlob(blob) }
-            otherText = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
+/// Shows the question a sync asks (`SyncConflictsView`) over the window it is attached to.
+struct SyncQuestionSheet: ViewModifier {
+    @EnvironmentObject private var notebooks: Notebooks
+
+    func body(content: Content) -> some View {
+        // Closing the sheet any way but its two buttons would leave the sync half done with no way to resume.
+        content.sheet(item: Binding(get: { notebooks.pendingSync }, set: { _ in })) { pending in
+            SyncConflictsView(pending: pending, onCancel: { notebooks.cancelPendingSync() }, onContinue: { notebooks.continueSync($0) })
+                .interactiveDismissDisabled()
         }
     }
-
-    private func place(_ side: Side) -> String { side == .local ? "这台电脑" : "云端" }
-    private func other(_ side: Side) -> Side { side == .local ? .remote : .local }
-    private func time(_ millis: Int64) -> String { millis > 0 ? friendlyTime(millis) : "未知时间" }
 }
 
 /// The update flow over the main window: new version → download → replace the app in Applications.
