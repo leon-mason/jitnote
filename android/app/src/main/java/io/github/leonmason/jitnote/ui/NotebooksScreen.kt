@@ -22,7 +22,10 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,12 +62,14 @@ import kotlinx.coroutines.launch
 fun NotebooksScreen(notebooks: Notebooks, nav: Navigator) {
     val state by notebooks.state.collectAsStateWithLifecycle()
     val syncStates by notebooks.syncStates.collectAsStateWithLifecycle()
+    val unsynced by notebooks.unsynced.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var renaming by remember { mutableStateOf<Notebook?>(null) }
     var deleting by remember { mutableStateOf<Pair<Notebook, Boolean>?>(null) }
 
     SyncMessages(notebooks, syncStates, snackbar)
+    LaunchedEffect(state.notebooks) { state.notebooks.forEach { notebooks.refreshUnsynced(it) } }
 
     Scaffold(
         topBar = {
@@ -105,6 +110,7 @@ fun NotebooksScreen(notebooks: Notebooks, nav: Navigator) {
                     NotebookCard(
                         notebook = notebook,
                         syncState = syncStates[notebook.id],
+                        unsynced = notebook.id in unsynced,
                         onOpen = {
                             notebooks.setCurrent(notebook.id)
                             nav.popUntil { it == Screen.Home }
@@ -183,6 +189,7 @@ fun Welcome(modifier: Modifier, onStart: () -> Unit) {
 private fun NotebookCard(
     notebook: Notebook,
     syncState: SyncState?,
+    unsynced: Boolean,
     onOpen: () -> Unit,
     onSync: () -> Unit,
     onRename: () -> Unit,
@@ -202,9 +209,9 @@ private fun NotebookCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.size(4.dp))
-                SyncStatusLine(notebook, syncState)
+                SyncStatusLine(notebook, syncState, unsynced)
             }
-            SyncButton(syncState == SyncState.Running, onSync)
+            SyncButton(syncState == SyncState.Running, unsynced, onSync)
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -223,10 +230,11 @@ private fun NotebookCard(
 }
 
 @Composable
-fun SyncStatusLine(notebook: Notebook, syncState: SyncState?) {
+fun SyncStatusLine(notebook: Notebook, syncState: SyncState?, unsynced: Boolean = false) {
     val (icon, text, isError) = when {
         syncState == SyncState.Running -> Triple(Icons.Outlined.Sync, "正在同步…", false)
         notebook.lastSyncError != null -> Triple(Icons.Outlined.CloudOff, "同步没有成功：${notebook.lastSyncError}", true)
+        unsynced -> Triple(Icons.Outlined.CloudUpload, "有未同步的修改", false)
         notebook.lastSyncAt != null -> Triple(Icons.Outlined.CloudDone, "已同步 · ${friendlyTime(notebook.lastSyncAt)}", false)
         else -> Triple(Icons.Outlined.CloudOff, "还没有同步过", false)
     }
@@ -238,14 +246,16 @@ fun SyncStatusLine(notebook: Notebook, syncState: SyncState?) {
     }
 }
 
-/** The one sync button. Shows a spinner while syncing. */
+/** The one sync button. Shows a spinner while syncing, and a dot when there is something to sync. */
 @Composable
-fun SyncButton(running: Boolean, onSync: () -> Unit) {
+fun SyncButton(running: Boolean, unsynced: Boolean, onSync: () -> Unit) {
     IconButton(onClick = onSync, enabled = !running) {
         if (running) {
             CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
         } else {
-            Icon(Icons.Outlined.Sync, contentDescription = "同步")
+            BadgedBox(badge = { if (unsynced) Badge() }) {
+                Icon(Icons.Outlined.Sync, contentDescription = if (unsynced) "同步（有未同步的修改）" else "同步")
+            }
         }
     }
 }

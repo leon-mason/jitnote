@@ -77,14 +77,14 @@ final class NotebookGit: @unchecked Sendable {
         try withRepo { try blobData(Git2.oid(blob), in: $0) }
     }
 
-    /// Overwrites [path] with its content at [commit] and commits that as a new change.
-    @discardableResult
-    func restore(_ path: String, commit: String, author: Author, device: String) throws -> Bool {
+    /// Overwrites [path] with its content at [commit]. What is there now is recorded first (just this
+    /// file), so restoring never loses the current text; the restored text goes in with the next sync.
+    func restore(_ path: String, commit: String, author: Author, device: String) throws {
         try withRepo { repo in
             let content = try blobId(at: Git2.oid(commit), path: path, in: repo).map { try blobData($0, in: repo) }
-            try writeOrDelete(path, content)
             try applyIdentity(repo, author)
-            return try commitAllInternal(repo, author: author, device: device, message: "恢复历史版本：\(Self.title(path))")
+            _ = try commitPathsInternal(repo, [path], author: author, device: device, message: nil)
+            try writeOrDelete(path, content)
         }
     }
 
@@ -345,24 +345,108 @@ final class NotebookGit: @unchecked Sendable {
         }
         try Git2.check(git_index_write(index))
 
-        var added: [String] = [], changed: [String] = [], removed: [String] = []
         let headTree = try headId(repo).map { try tree(of: $0, in: repo) }
         defer { headTree.map { git_tree_free($0) } }
+        let (added, changed, removed) = try changes(repo, from: headTree, to: index, only: nil)
+        guard let summary = message ?? Self.describeChanges(added: added, changed: changed, removed: removed) else { return false }
+        let parents = headId(repo).map { [$0] } ?? []
+        try commitIndex(repo, index: index, parents: parents, author: author, message: Self.commitMessage(summary, device: device))
+        return true
+    }
+
+    /// Commits only [paths] (files, or folders with everything under them); every other change stays
+    /// uncommitted, and so does whatever another tool has staged. Returns false when those paths have
+    /// nothing new. Used to keep a version of something before the app deletes or overwrites it.
+    @discardableResult
+    func commitPaths(_ paths: [String], author: Author, device: String, message: String? = nil) throws -> Bool {
+        try withRepo { repo in
+            try applyIdentity(repo, author)
+            return try commitPathsInternal(repo, paths, author: author, device: device, message: message)
+        }
+    }
+
+    private func commitPathsInternal(_ repo: OpaquePointer, _ paths: [String], author: Author, device: String, message: String?) throws -> Bool {
+        let index = try repoIndex(repo)
+        defer { git_index_free(index) }
+        for path in paths { try stage(path, in: index, repo: repo) }
+        try Git2.check(git_index_write(index))
+
+        let headTree = try headId(repo).map { try tree(of: $0, in: repo) }
+        defer { headTree.map { git_tree_free($0) } }
+        let (added, changed, removed) = try changes(repo, from: headTree, to: index, only: paths)
+        guard let summary = message ?? Self.describeChanges(added: added, changed: changed, removed: removed) else { return false }
+
+        // The commit is HEAD's tree plus just these paths. Building it from the real index would also
+        // commit whatever else is staged there.
+        var pending: OpaquePointer?
+        try Git2.check(git_index_new(&pending))
+        defer { git_index_free(pending) }
+        if let headTree { try Git2.check(git_index_read_tree(pending, headTree)) }
+        for path in removed { try Git2.check(git_index_remove(pending, path, 0)) }
+        for path in added + changed {
+            guard let entry = git_index_get_bypath(index, path, 0) else { continue }
+            try Git2.check(git_index_add(pending, entry))
+        }
+        let parents = headId(repo).map { [$0] } ?? []
+        try commitIndex(repo, index: pending!, parents: parents, author: author, message: Self.commitMessage(summary, device: device))
+        return true
+    }
+
+    /// Records the working-tree state of [path] (a file, or a folder and what is in it) in [index].
+    /// Paths are matched literally: a note called "a[1].md" must not be read as a glob.
+    private func stage(_ path: String, in index: OpaquePointer, repo: OpaquePointer) throws {
+        let url = workTree.appendingPathComponent(path)
+        var isFolder: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder)
+        var onDisk: Set<String> = []
+        if exists && isFolder.boolValue {
+            // Relative paths come straight from the enumerator: its URLs have symlinks resolved
+            // (/var → /private/var), so they cannot be cut down to a path inside the notebook.
+            if let walker = FileManager.default.enumerator(atPath: url.path) {
+                for case let inside as String in walker {
+                    if walker.fileAttributes?[.type] as? FileAttributeType == .typeDirectory { continue }
+                    onDisk.insert(path + "/" + inside)
+                }
+            }
+        } else if exists {
+            onDisk.insert(path)
+        }
+        for file in onDisk {
+            // New files obey .gitignore; a file that is already tracked is recorded either way.
+            var ignored: Int32 = 0
+            if git_index_get_bypath(index, file, 0) == nil {
+                try Git2.check(git_ignore_path_is_ignored(&ignored, repo, file))
+                if ignored == 1 { continue }
+            }
+            try Git2.check(git_index_add_bypath(index, file))
+        }
+        // Whatever the index tracks under [path] but is no longer on disk was deleted.
+        for i in 0..<git_index_entrycount(index) {
+            guard let entry = git_index_get_byindex(index, i) else { continue }
+            let tracked = String(cString: entry.pointee.path)
+            guard tracked == path || tracked.hasPrefix(path + "/"), !onDisk.contains(tracked) else { continue }
+            _ = git_index_remove(index, tracked, 0)
+        }
+    }
+
+    /// Paths that differ between [headTree] and [index], optionally only those at or under [only].
+    private func changes(_ repo: OpaquePointer, from headTree: OpaquePointer?, to index: OpaquePointer, only: [String]?)
+        throws -> (added: [String], changed: [String], removed: [String]) {
+        var added: [String] = [], changed: [String] = [], removed: [String] = []
         var diff: OpaquePointer?
         try Git2.check(git_diff_tree_to_index(&diff, repo, headTree, index, nil))
         defer { git_diff_free(diff) }
         for i in 0..<git_diff_num_deltas(diff) {
             let delta = git_diff_get_delta(diff, i)!.pointee
+            let path = String(cString: delta.status == GIT_DELTA_DELETED ? delta.old_file.path : delta.new_file.path)
+            if let only, !only.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { continue }
             switch delta.status {
-            case GIT_DELTA_ADDED: added.append(String(cString: delta.new_file.path))
-            case GIT_DELTA_DELETED: removed.append(String(cString: delta.old_file.path))
-            default: changed.append(String(cString: delta.new_file.path))
+            case GIT_DELTA_ADDED: added.append(path)
+            case GIT_DELTA_DELETED: removed.append(path)
+            default: changed.append(path)
             }
         }
-        guard let summary = message ?? Self.describeChanges(added: added, changed: changed, removed: removed) else { return false }
-        let parents = headId(repo).map { [$0] } ?? []
-        try commitIndex(repo, index: index, parents: parents, author: author, message: Self.commitMessage(summary, device: device))
-        return true
+        return (added, changed, removed)
     }
 
     // MARK: - libgit2 helpers
@@ -508,7 +592,8 @@ final class NotebookGit: @unchecked Sendable {
 
     private func commitIndex(_ repo: OpaquePointer, index: OpaquePointer, parents: [git_oid], author: Author, message: String) throws {
         var treeId = git_oid()
-        try Git2.check(git_index_write_tree(&treeId, index))
+        // _to: an index built in memory is not attached to the repository.
+        try Git2.check(git_index_write_tree_to(&treeId, index, repo))
         var tree: OpaquePointer?
         try Git2.check(git_tree_lookup(&tree, repo, &treeId))
         defer { git_tree_free(tree) }

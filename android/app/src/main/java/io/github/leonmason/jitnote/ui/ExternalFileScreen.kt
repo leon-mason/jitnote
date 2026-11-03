@@ -42,7 +42,7 @@ fun ExternalFileScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Exte
 
     // The other app writes the file while this one is stopped. Coming back is "done editing".
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (handedOff) notebooks.commitInBackground(notebook)
+        if (handedOff) notebooks.refreshUnsyncedInBackground(notebook)
     }
 
     Scaffold(topBar = { BackTopBar(file.name, onBack = nav::pop) }) { padding ->

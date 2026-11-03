@@ -81,12 +81,27 @@ class NotebookGit(val workTree: File) {
 
     fun readBlob(blob: String): ByteArray = withGit { it.repository.open(ObjectId.fromString(blob)).bytes }
 
-    /** Overwrites [path] with its content at [commit] and commits that as a new change. */
-    fun restore(path: String, commit: String, author: Author, device: String): Boolean = withGit { git ->
-        writeOrDelete(path, readAt(git.repository, commit, path))
+    /**
+     * Overwrites [path] with its content at [commit]. What is there now is recorded first (just this
+     * file), so restoring never loses the current text; the restored text goes in with the next sync.
+     */
+    fun restore(path: String, commit: String, author: Author, device: String) = withGit { git ->
+        val content = readAt(git.repository, commit, path)
         applyIdentity(git.repository, author)
-        commitAllInternal(git, author, device, "恢复历史版本：${title(path)}")
+        commitPathsInternal(git, listOf(path), author, device, null)
+        writeOrDelete(path, content)
     }
+
+    /**
+     * Commits only [paths] (files, or folders with everything under them); every other change stays
+     * uncommitted, and so does whatever another tool has staged. Returns false when those paths have
+     * nothing new. Used to keep a version of something before the app deletes or overwrites it.
+     */
+    fun commitPaths(paths: List<String>, author: Author, device: String, message: String? = null): Boolean =
+        withGit { git ->
+            applyIdentity(git.repository, author)
+            commitPathsInternal(git, paths, author, device, message)
+        }
 
     fun conflicts(): List<ConflictRecord> {
         val file = conflictFile()
@@ -315,6 +330,23 @@ class NotebookGit(val workTree: File) {
         val summary = message ?: describeChanges(staged.added, staged.changed, staged.removed) ?: return false
         val ident = PersonIdent(author.name, author.email)
         git.commit()
+            .setMessage(commitMessage(summary, device))
+            .setAuthor(ident)
+            .setCommitter(ident)
+            .call()
+        return true
+    }
+
+    private fun commitPathsInternal(git: Git, paths: List<String>, author: Author, device: String, message: String?): Boolean {
+        if (paths.isEmpty()) return false
+        // JGit takes these as literal paths, not globs, so a note called "a[1].md" is safe.
+        git.add().apply { paths.forEach(::addFilepattern) }.call()
+        git.add().setUpdate(true).apply { paths.forEach(::addFilepattern) }.call()
+        val staged = git.status().apply { paths.forEach(::addPath) }.call()
+        val summary = message ?: describeChanges(staged.added, staged.changed, staged.removed) ?: return false
+        val ident = PersonIdent(author.name, author.email)
+        git.commit()
+            .apply { paths.forEach(::setOnly) }
             .setMessage(commitMessage(summary, device))
             .setAuthor(ident)
             .setCommitter(ident)

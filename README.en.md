@@ -9,7 +9,7 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 - **Built for working with AI**: notes are plain Markdown files in a real Git repository, so AI tools such as Claude Code or Cursor can organize, rewrite and search them directly; push, tap sync on the phone, and the changes are there.
 
 - **Every notebook is a real Git repository**: the phone keeps a full `.git` with real commit history. Clone it on your computer, edit with any editor or AI tool (Cursor, Claude Code, …), push, and tap sync on the phone to get the changes.
-- **Just one "Sync" button**: notes are saved and versioned automatically. Sync = commit → fetch → merge → push. Never force-pushes.
+- **Just one "Sync" button**: notes are saved as you write; sync records a version and uploads it: commit → fetch → merge → push. Never force-pushes.
 - **Conflicts never lose data**: if the same note was edited in two places, the newer version is kept. The other version stays in history and can be restored with one tap.
 - **WYSIWYG**: you see an ordinary note (headings, bold, lists, to-dos, tables). What's saved is standard Markdown that Obsidian / Typora can open directly.
 - **Works with existing repositories**: use your Obsidian or Typora notes repository as-is. Existing files and image references are left untouched.

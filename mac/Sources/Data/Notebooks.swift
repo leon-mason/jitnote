@@ -186,27 +186,38 @@ final class Notebooks: ObservableObject {
         (try? await run(notebook) { try $0.hasUnsyncedWork() }) ?? true
     }
 
-    // MARK: - Editing
+    // MARK: - Unsynced work
 
-    /// Commits whatever changed in the working copy, e.g. after leaving a note.
-    func commitInBackground(_ notebook: Notebook) {
-        Task { _ = await commit(notebook) }
-    }
+    /// Notebooks with something that has not reached the cloud: edits on disk, or commits another tool
+    /// made here. Versions are only recorded when syncing (design.md, "同步规则"), so this is what tells
+    /// the user there is something to sync.
+    @Published private(set) var unsynced: Set<String> = []
+    private var refreshing: Set<String> = []
+    private var refreshAgain: Set<String> = []
 
-    @discardableResult
-    func commit(_ notebook: Notebook, message: String? = nil) async -> Bool {
-        guard let account = account(notebook.accountId) else { return false }
-        let author = author(account), device = device
-        return (try? await run(notebook) { try $0.commitAll(author: author, device: device, message: message) }) ?? false
-    }
-
-    /// Records a version of every notebook with changes, before returning; used when the app quits.
-    func commitAllNow() {
-        for notebook in state.notebooks {
-            guard let account = account(notebook.accountId) else { continue }
-            let git = NotebookGit(workTree: dir(notebook)), author = author(account), device = device
-            queue(for: notebook).sync { _ = try? git.commitAll(author: author, device: device) }
+    /// Looks again at whether [notebook] has unsynced work. Calls that arrive while a check is running
+    /// make it run once more, so the last change is never missed, without a check per keystroke.
+    func refreshUnsynced(_ notebook: Notebook) async {
+        if refreshing.contains(notebook.id) {
+            refreshAgain.insert(notebook.id)
+            return
         }
+        refreshing.insert(notebook.id)
+        defer { refreshing.remove(notebook.id) }
+        repeat {
+            refreshAgain.remove(notebook.id)
+            // A failed check (say another tool holds the repository lock) keeps what was shown.
+            guard let dirty = try? await run(notebook, { try $0.hasUnsyncedWork() }) else { continue }
+            if dirty { unsynced.insert(notebook.id) } else { unsynced.remove(notebook.id) }
+        } while refreshAgain.contains(notebook.id)
+    }
+
+    /// Records a version of just [paths] before the app deletes or overwrites them: with no commit
+    /// between syncs, text that was never synced would otherwise be gone for good.
+    func keepVersion(_ notebook: Notebook, paths: [String]) async {
+        guard let account = account(notebook.accountId) else { return }
+        let author = author(account), device = device
+        _ = try? await run(notebook) { try $0.commitPaths(paths, author: author, device: device) }
     }
 
     private func queue(for notebook: Notebook) -> DispatchQueue {
@@ -256,6 +267,7 @@ final class Notebooks: ObservableObject {
             updateNotebook(notebook.id) { $0.lastSyncError = message }
             syncMessage = SyncMessage(notebookId: notebook.id, ok: false, text: message)
         }
+        await refreshUnsynced(notebook)
     }
 
     private static func describe(_ result: SyncResult) -> String {
@@ -296,7 +308,7 @@ final class Notebooks: ObservableObject {
     func restore(_ notebook: Notebook, path: String, commit: String) async throws {
         guard let account = account(notebook.accountId) else { return }
         let author = author(account), device = device
-        _ = try await run(notebook) { try $0.restore(path, commit: commit, author: author, device: device) }
+        try await run(notebook) { try $0.restore(path, commit: commit, author: author, device: device) }
         revision += 1
     }
 

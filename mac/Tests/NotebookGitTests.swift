@@ -154,6 +154,20 @@ enum NotebookGitTests {
             try expectEqual(try log(phone), ["新建：第一篇"])
         },
 
+        TestCase("syncRecordsEveryChangeAsOneVersionAndNothingBeforeThat") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "a.md", "1")
+            try write(a, "b.md", "2")
+            try write(a, "dir/c.md", "3")
+            try expect(try a.hasUnsyncedWork())
+
+            try sync(a)
+
+            try expectEqual(try log(a), ["更新 3 个文件：a、b、c"])
+            try expect(try !a.hasUnsyncedWork())
+        },
+
         TestCase("pullsCloudChangesByFastForward") { root in
             let cloud = try Cloud(root)
             let a = try cloud.device("a")
@@ -298,7 +312,89 @@ enum NotebookGitTests {
 
             try a.restore("dir/日记.md", commit: history.last!.commit, author: author, device: "a")
             try expectEqual(try read(a, "dir/日记.md"), "v1")
-            try expectEqual(try log(a).first, "恢复历史版本：日记")
+            // Nothing new to keep, so restoring adds no version; the restored text goes in with the next sync.
+            try expectEqual(try log(a), ["编辑：日记", "新建：日记"])
+            try expect(try a.hasLocalChanges())
+            try sync(a)
+            try expectEqual(try log(a).first, "编辑：日记")
+        },
+
+        TestCase("restoreKeepsTheTextThatWasNotSavedYet") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "日记.md", "v1")
+            try a.commitAll(author: author, device: "a")
+            try write(a, "日记.md", "v2, never committed")
+            try write(a, "other.md", "unrelated")
+            let first = try a.history("日记.md").last!.commit
+
+            try a.restore("日记.md", commit: first, author: author, device: "a")
+
+            try expectEqual(try read(a, "日记.md"), "v1")
+            let kept = try a.history("日记.md").first!
+            try expectEqual(String(decoding: try a.read(at: kept.commit, path: "日记.md")!, as: UTF8.self), "v2, never committed")
+            // Only the restored file was recorded.
+            try expectEqual(try a.read(at: kept.commit, path: "other.md"), nil)
+        },
+
+        TestCase("commitPathsRecordsOnlyThosePaths") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "dir/x.md", "x1")
+            try write(a, "keep.md", "k1")
+            try a.commitAll(author: author, device: "a")
+            try write(a, "dir/x.md", "x2")
+            try write(a, "dir/new.md", "new")
+            try write(a, "dir/secret.txt", "ignored")
+            try write(a, ".gitignore", "secret.txt\n")
+            try write(a, "keep.md", "k2")
+            try write(a, "a[1].md", "glob characters in a name")
+            try write(a, "a1.md", "must not be matched by that glob")
+
+            try expect(try a.commitPaths(["dir", "a[1].md"], author: author, device: "a"))
+
+            let head = try a.history("dir/x.md").first!.commit
+            try expectEqual(String(decoding: try a.read(at: head, path: "dir/x.md")!, as: UTF8.self), "x2")
+            try expectEqual(String(decoding: try a.read(at: head, path: "dir/new.md")!, as: UTF8.self), "new")
+            try expectEqual(String(decoding: try a.read(at: head, path: "a[1].md")!, as: UTF8.self), "glob characters in a name")
+            try expectEqual(try a.read(at: head, path: "dir/secret.txt"), nil)
+            try expectEqual(try a.read(at: head, path: "a1.md"), nil)
+            try expectEqual(String(decoding: try a.read(at: head, path: "keep.md")!, as: UTF8.self), "k1")
+            try expect(try a.hasLocalChanges(), "the other changes stay uncommitted")
+            try expect(try !a.commitPaths(["dir"], author: author, device: "a"), "nothing new under dir")
+        },
+
+        TestCase("commitPathsRecordsADeletedFolder") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "dir/x.md", "x1")
+            try a.commitAll(author: author, device: "a")
+            try FileManager.default.removeItem(at: a.workTree.appendingPathComponent("dir"))
+
+            try expect(try a.commitPaths(["dir"], author: author, device: "a"))
+
+            try expectEqual(try log(a).first, "删除：x")
+            let history = try a.history("dir/x.md")
+            try expectEqual(try a.read(at: history.first!.commit, path: "dir/x.md"), nil)
+            try expectEqual(String(decoding: try a.read(at: history.last!.commit, path: "dir/x.md")!, as: UTF8.self), "x1")
+        },
+
+        TestCase("deletingANoteThatWasNeverCommittedKeepsItsText") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "base.md", "b")
+            try a.commitAll(author: author, device: "a")
+            try write(a, "draft.md", "written a minute ago")
+            let draft = a.workTree.appendingPathComponent("draft.md")
+
+            // What the app does before deleting: keep a version of just this note.
+            try a.commitPaths(["draft.md"], author: author, device: "a")
+            try FileManager.default.removeItem(at: draft)
+            try sync(a)
+
+            let history = try a.history("draft.md")
+            try expectEqual(history.map(\.message), ["删除：draft", "新建：draft"])
+            try expectEqual(String(decoding: try a.read(at: history.last!.commit, path: "draft.md")!, as: UTF8.self), "written a minute ago")
         },
 
         TestCase("recoversFromInterruptedMerge") { root in

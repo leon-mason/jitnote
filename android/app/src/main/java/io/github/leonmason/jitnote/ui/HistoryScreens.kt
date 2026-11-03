@@ -33,7 +33,6 @@ fun HistoryScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.History) 
     val notebook = notebooks.notebook(screen.notebookId) ?: return
     var versions by remember { mutableStateOf<List<Version>?>(null) }
     LaunchedEffect(screen) {
-        notebooks.commit(notebook)
         versions = notebooks.withLock(notebook) { notebooks.git(notebook).history(screen.path) }
     }
     val title = NoteFiles.Entry(File(screen.path), false, 0).title

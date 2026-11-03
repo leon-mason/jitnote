@@ -44,11 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        // The editor writes every change to disk as you type; here we only record the version.
-        MainActor.assumeIsolated { AppModel.shared.notebooks.commitAllNow() }
-    }
 }
 
 @main

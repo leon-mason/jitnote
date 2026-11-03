@@ -58,7 +58,7 @@ struct ManageNotebooksView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(notebook.name).font(.headline)
-                            SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook))
+                            SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
                         }
                         Spacer()
                         if notebook.id == notebooks.state.currentNotebook?.id {
@@ -82,6 +82,7 @@ struct ManageNotebooksView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .task { for notebook in notebooks.state.notebooks { await notebooks.refreshUnsynced(notebook) } }
             }
             Divider()
             HStack {

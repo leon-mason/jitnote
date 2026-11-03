@@ -117,6 +117,7 @@ private fun NotesHome(
 ) {
     val syncStates by notebooks.syncStates.collectAsStateWithLifecycle()
     val syncState = syncStates[notebook.id]
+    val unsynced by notebooks.unsynced.collectAsStateWithLifecycle()
     val root = notebooks.dir(notebook)
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -149,6 +150,7 @@ private fun NotesHome(
         if (syncState == SyncState.Running) return@LaunchedEffect
         nav.conflictCounts[notebook.id] = notebooks.conflicts(notebook).size
     }
+    LaunchedEffect(notebook.id, refresh) { notebooks.refreshUnsynced(notebook) }
     SyncMessages(notebooks, syncStates, snackbar)
 
     fun setExpanded(paths: Set<String>) {
@@ -189,7 +191,7 @@ private fun NotesHome(
                     NotebookSwitcher(notebook, all, onSwitch = { notebooks.setCurrent(it.id) }, onManage = { nav.push(Screen.Notebooks) })
                 },
                 actions = {
-                    SyncButton(syncState == SyncState.Running) { notebooks.startSync(notebook) }
+                    SyncButton(syncState == SyncState.Running, notebook.id in unsynced) { notebooks.startSync(notebook) }
                     AppMenu(updates, nav)
                 },
             )
@@ -212,7 +214,7 @@ private fun NotesHome(
             // A tap on the empty space below the rows clears the highlight, so a new note can go in the root.
             modifier = Modifier.fillMaxSize().clickable(interactionSource = null, indication = null) { nav.highlighted.remove(notebook.id) },
         ) {
-            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { SyncStatusLine(notebook, syncState) } }
+            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { SyncStatusLine(notebook, syncState, notebook.id in unsynced) } }
             if (conflictCount > 0) {
                 item { ConflictsCard(conflictCount) { nav.push(Screen.Conflicts(notebook.id)) } }
             }
@@ -299,7 +301,6 @@ private fun NotesHome(
                 renaming = null
                 setExpanded(FileTree.renamed(expanded, old, new))
                 nav.highlighted[notebook.id] = FileTree.moved(highlighted, old, new)
-                notebooks.commitInBackground(notebook)
                 refresh++
                 null
             } catch (e: IllegalArgumentException) {
@@ -327,8 +328,9 @@ private fun NotesHome(
             // The highlight falls back to the folder that held what was deleted.
             if (highlighted == path || highlighted.startsWith("$path/")) nav.highlighted[notebook.id] = FileTree.parent(path)
             scope.launch {
+                // Nothing is committed between syncs, so keep a version of what is about to disappear.
+                notebooks.keepVersion(notebook, listOf(path))
                 notebooks.withLock(notebook) { file.deleteRecursively() }
-                notebooks.commit(notebook)
                 refresh++
             }
         }

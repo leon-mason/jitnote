@@ -200,14 +200,31 @@ class Notebooks(
 
     // ------------------------------------------------------------------ editing
 
-    /** Commits whatever changed in the working copy, e.g. after leaving the editor. */
-    fun commitInBackground(notebook: Notebook) {
-        scope.launch { commit(notebook) }
+    private val _unsynced = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Notebooks with something that has not reached the cloud: edits on disk. Versions are only
+     * recorded when syncing (design.md, "同步规则"), so this is what tells the user there is something to sync.
+     */
+    val unsynced: StateFlow<Set<String>> = _unsynced.asStateFlow()
+
+    fun refreshUnsyncedInBackground(notebook: Notebook) {
+        scope.launch { refreshUnsynced(notebook) }
     }
 
-    suspend fun commit(notebook: Notebook, message: String? = null): Boolean {
-        val account = account(notebook.accountId) ?: return false
-        return withLock(notebook) { git(notebook).commitAll(author(account), device, message) }
+    suspend fun refreshUnsynced(notebook: Notebook) {
+        // A failed check keeps what was shown.
+        val dirty = runCatching { withLock(notebook) { git(notebook).hasUnsyncedWork() } }.getOrNull() ?: return
+        _unsynced.update { if (dirty) it + notebook.id else it - notebook.id }
+    }
+
+    /**
+     * Records a version of just [paths] before the app deletes or overwrites them: with no commit
+     * between syncs, text that was never synced would otherwise be gone for good.
+     */
+    suspend fun keepVersion(notebook: Notebook, paths: List<String>) {
+        val account = account(notebook.accountId) ?: return
+        runCatching { withLock(notebook) { git(notebook).commitPaths(paths, author(account), device) } }
     }
 
     suspend fun <T> withLock(notebook: Notebook, block: () -> T): T = withContext(Dispatchers.IO) {
@@ -241,6 +258,7 @@ class Notebooks(
             SyncState.Finished(++syncSeq, false, message, 0)
         }
         _syncStates.update { it + (notebook.id to finished) }
+        refreshUnsynced(notebook)
     }
 
     private fun describe(result: SyncResult): String = when {

@@ -60,6 +60,22 @@ class NotebookGitTest {
     }
 
     @Test
+    fun syncRecordsEveryChangeAsOneVersionAndNothingBeforeThat() {
+        val a = device("a")
+        a.write("a.md", "1")
+        a.write("b.md", "2")
+        a.write("dir/c.md", "3")
+        assertTrue(a.hasUnsyncedWork())
+
+        a.syncNow()
+
+        val log = a.log()
+        assertEquals(1, log.size)
+        assertTrue(log.first(), log.first().startsWith("更新 3 个文件："))
+        assertFalse(a.hasUnsyncedWork())
+    }
+
+    @Test
     fun pullsCloudChangesByFastForward() {
         val a = device("a")
         a.write("note.md", "v1")
@@ -199,7 +215,88 @@ class NotebookGitTest {
 
         a.restore("dir/日记.md", history.last().commit, author, "a")
         assertEquals("v1", a.read("dir/日记.md"))
-        assertEquals("恢复历史版本：日记", a.log().first())
+        // Nothing new to keep, so restoring adds no version; the restored text goes in with the next sync.
+        assertEquals(listOf("编辑：日记", "新建：日记"), a.log())
+        assertTrue(a.hasLocalChanges())
+        a.syncNow()
+        assertEquals("编辑：日记", a.log().first())
+    }
+
+    @Test
+    fun restoreKeepsTheTextThatWasNotSavedYet() {
+        val a = device("a")
+        a.write("日记.md", "v1")
+        a.commitAll(author, "a")
+        a.write("日记.md", "v2, never committed")
+        a.write("other.md", "unrelated")
+        val first = a.history("日记.md").last().commit
+
+        a.restore("日记.md", first, author, "a")
+
+        assertEquals("v1", a.read("日记.md"))
+        val kept = a.history("日记.md").first()
+        assertEquals("v2, never committed", String(a.readAt(kept.commit, "日记.md")!!))
+        // Only the restored file was recorded.
+        assertNull(a.readAt(kept.commit, "other.md"))
+    }
+
+    @Test
+    fun commitPathsRecordsOnlyThosePaths() {
+        val a = device("a")
+        a.write("dir/x.md", "x1")
+        a.write("keep.md", "k1")
+        a.commitAll(author, "a")
+        a.write("dir/x.md", "x2")
+        a.write("dir/new.md", "new")
+        a.write("dir/secret.txt", "ignored")
+        a.write(".gitignore", "secret.txt\n")
+        a.write("keep.md", "k2")
+        a.write("a[1].md", "glob characters in a name")
+        a.write("a1.md", "must not be matched by that glob")
+
+        assertTrue(a.commitPaths(listOf("dir", "a[1].md"), author, "a"))
+
+        val head = a.history("dir/x.md").first().commit
+        assertEquals("x2", String(a.readAt(head, "dir/x.md")!!))
+        assertEquals("new", String(a.readAt(head, "dir/new.md")!!))
+        assertEquals("glob characters in a name", String(a.readAt(head, "a[1].md")!!))
+        assertNull(a.readAt(head, "dir/secret.txt"))
+        assertNull(a.readAt(head, "a1.md"))
+        assertEquals("k1", String(a.readAt(head, "keep.md")!!))
+        assertTrue("the other changes stay uncommitted", a.hasLocalChanges())
+        assertFalse("nothing new under dir", a.commitPaths(listOf("dir"), author, "a"))
+    }
+
+    @Test
+    fun commitPathsRecordsADeletedFolder() {
+        val a = device("a")
+        a.write("dir/x.md", "x1")
+        a.commitAll(author, "a")
+        File(a.workTree, "dir").deleteRecursively()
+
+        assertTrue(a.commitPaths(listOf("dir"), author, "a"))
+
+        assertEquals("删除：x", a.log().first())
+        val history = a.history("dir/x.md")
+        assertNull(a.readAt(history.first().commit, "dir/x.md"))
+        assertEquals("x1", String(a.readAt(history.last().commit, "dir/x.md")!!))
+    }
+
+    @Test
+    fun deletingANoteThatWasNeverCommittedKeepsItsText() {
+        val a = device("a")
+        a.write("base.md", "b")
+        a.commitAll(author, "a")
+        a.write("draft.md", "written a minute ago")
+
+        // What the app does before deleting: keep a version of just this note.
+        a.commitPaths(listOf("draft.md"), author, "a")
+        File(a.workTree, "draft.md").delete()
+        a.syncNow()
+
+        val history = a.history("draft.md")
+        assertEquals(listOf("删除：draft", "新建：draft"), history.map { it.message })
+        assertEquals("written a minute ago", String(a.readAt(history.last().commit, "draft.md")!!))
     }
 
     /**

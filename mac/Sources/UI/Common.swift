@@ -99,11 +99,14 @@ struct Waiting: View {
 struct SyncStatusLine: View {
     let notebook: Notebook
     let syncing: Bool
+    /// Edits (or commits made by another program) that have not reached the cloud yet.
+    var unsynced = false
 
     var body: some View {
         let (icon, text, isError): (String, String, Bool) = {
             if syncing { return ("arrow.triangle.2.circlepath", "正在同步…", false) }
             if let error = notebook.lastSyncError { return ("exclamationmark.icloud", "同步没有成功：\(error)", true) }
+            if unsynced { return ("icloud.and.arrow.up", "有未同步的修改", false) }
             if let at = notebook.lastSyncAt { return ("checkmark.icloud", "已同步 · \(friendlyTime(at))", false) }
             return ("icloud.slash", "还没有同步过", false)
         }()

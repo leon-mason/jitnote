@@ -138,13 +138,16 @@ struct NotebookView: View {
                 if syncing {
                     ProgressView().controlSize(.small).help("正在同步…")
                 } else {
-                    Button(action: sync) { Label("同步", systemImage: "arrow.triangle.2.circlepath") }
-                        .help("同步（⌘R）")
+                    Button(action: sync) {
+                        Label("同步", systemImage: notebooks.unsynced.contains(notebook.id) ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath")
+                    }
+                    .help(notebooks.unsynced.contains(notebook.id) ? "有未同步的修改（⌘R）" : "同步（⌘R）")
                 }
             }
         }
         .task(id: LoadKey(sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
+            await notebooks.refreshUnsynced(notebook)
         }
         .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in prompt = .newNote(currentFolder) }
         .onReceive(NotificationCenter.default.publisher(for: .newFolder)) { _ in prompt = .newFolder(currentFolder) }
@@ -166,8 +169,12 @@ struct NotebookView: View {
         .onReceive(NotificationCenter.default.publisher(for: .saveNow)) { _ in
             Task {
                 await bridge.flush()
-                notebooks.commitInBackground(notebook)
+                await notebooks.refreshUnsynced(notebook)
             }
+        }
+        // Another program (an AI, a terminal) may have changed or committed things while this app was behind.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await notebooks.refreshUnsynced(notebook) }
         }
         .onChange(of: notebooks.syncMessage) { _, message in
             guard let message, message.notebookId == notebook.id else { return }
@@ -229,9 +236,9 @@ struct NotebookView: View {
                 }
         } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
             NoteDetail(root: root, path: path, readonly: viewMode == .preview, bridge: bridge,
-                       onSaved: {},
+                       onSaved: { Task { await notebooks.refreshUnsynced(notebook) } },
                        onClose: {
-                           notebooks.commitInBackground(notebook)
+                           Task { await notebooks.refreshUnsynced(notebook) }
                            refresh += 1
                        },
                        onOpenImage: { image = root.appendingPathComponent($0) })
@@ -430,7 +437,7 @@ struct NotebookView: View {
             notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
             highlighted = FileTree.moved(highlighted, old: old, new: new)
             selection = selection.map { FileTree.moved($0, old: old, new: new) }
-            notebooks.commitInBackground(notebook)
+            Task { await notebooks.refreshUnsynced(notebook) }
             refresh += 1
             return nil
         } catch {
@@ -446,8 +453,10 @@ struct NotebookView: View {
         notebooks.setExpandedFolders(notebook.id, FileTree.removed(expanded, path: path))
         if highlighted == path || highlighted.hasPrefix(path + "/") { highlighted = FileTree.parent(path) }
         Task {
+            // Nothing is committed between syncs, so keep a version of what is about to disappear.
+            await notebooks.keepVersion(notebook, paths: [path])
             try? await notebooks.run(notebook) { _ in try FileManager.default.removeItem(at: url) }
-            await notebooks.commit(notebook)
+            await notebooks.refreshUnsynced(notebook)
             refresh += 1
         }
     }
@@ -533,7 +542,7 @@ private struct Sidebar: View {
             .help("切换笔记本")
 
             VStack(alignment: .leading, spacing: 6) {
-                SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook))
+                SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
                 if conflictCount > 0 {
                     Button(action: onConflicts) {
                         Label("有 \(conflictCount) 篇笔记在两个地方都改过，已自动保留较新的版本。点这里查看。", systemImage: "info.circle")

@@ -138,14 +138,14 @@ private fun RichNoteEditor(
     val handle = remember(saver) {
         EditorHandle(onClose = { final ->
             saver.save(final)
-            notebooks.commitInBackground(notebook)
+            notebooks.refreshUnsyncedInBackground(notebook)
         })
     }
-    // Leaving the app also counts as "done editing": save and record a version.
+    // Leaving the app also counts as "done editing": save it. The version is recorded by the next sync.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         handle.read { latest ->
             saver.save(latest)
-            notebooks.commitInBackground(notebook)
+            notebooks.refreshUnsyncedInBackground(notebook)
         }
     }
     NoteWebView(
@@ -173,12 +173,12 @@ private fun PlainTextEditor(notebooks: Notebooks, notebook: Notebook, file: File
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         saver.save(value)
-        notebooks.commitInBackground(notebook)
+        notebooks.refreshUnsyncedInBackground(notebook)
     }
     androidx.compose.runtime.DisposableEffect(saver) {
         onDispose {
             saver.save(value)
-            notebooks.commitInBackground(notebook)
+            notebooks.refreshUnsyncedInBackground(notebook)
         }
     }
     BasicTextField(
