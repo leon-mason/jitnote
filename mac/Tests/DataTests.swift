@@ -86,6 +86,47 @@ enum NoteIndexTests {
             try expectEqual(tree.map(\.name), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
             try expectEqual(tree.map(\.path), ["AGENTS.md", "CLAUDE.md", "project_memory.md"])
         },
+
+        TestCase("referenceOpensTheFileItPointsAt") { root in
+            try write(root, "AGENTS.md", "rules")
+            try write(root, "其他.md", "other")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("CLAUDE.md").path, withDestinationPath: "@AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("project_memory.md").path, withDestinationPath: "AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("跳转.md").path, withDestinationPath: "@CLAUDE.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("断了.md").path, withDestinationPath: "@没有.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("出去.md").path, withDestinationPath: "/etc/passwd")
+            try FileManager.default.createDirectory(at: root.appendingPathComponent("子目录"), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("子目录/索引.md").path, withDestinationPath: "@../AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("子目录/快捷方式.md").path, withDestinationPath: "../AGENTS.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("甲.md").path, withDestinationPath: "@乙.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("乙.md").path, withDestinationPath: "@甲.md")
+
+            // An index (`@name`) and a shortcut both open the real file, including through another reference.
+            try expectEqual(NoteIndex.resolveReference(at: root.appendingPathComponent("CLAUDE.md"), in: root), "AGENTS.md")
+            try expectEqual(NoteIndex.resolveReference(at: root.appendingPathComponent("project_memory.md"), in: root), "AGENTS.md")
+            try expectEqual(NoteIndex.resolveReference(at: root.appendingPathComponent("跳转.md"), in: root), "AGENTS.md")
+            try expectEqual(NoteIndex.resolveReference(at: root.appendingPathComponent("子目录/索引.md"), in: root), "AGENTS.md")
+            try expectEqual(NoteIndex.resolveReference(at: root.appendingPathComponent("子目录/快捷方式.md"), in: root), "AGENTS.md")
+            try expect(NoteIndex.resolveReference(at: root.appendingPathComponent("AGENTS.md"), in: root) == nil)
+            try expect(NoteIndex.resolveReference(at: root.appendingPathComponent("断了.md"), in: root) == nil)
+            try expect(NoteIndex.resolveReference(at: root.appendingPathComponent("出去.md"), in: root) == nil)
+            try expect(NoteIndex.resolveReference(at: root.appendingPathComponent("甲.md"), in: root) == nil)
+
+            // Every reference in the folder names the same file, so that file is what the folder shows.
+            try expectEqual(NoteIndex.referenceTarget(inFolder: "", root: root, showHidden: false), "AGENTS.md")
+            try expectEqual(NoteIndex.referenceTarget(inFolder: "子目录", root: root, showHidden: false), "AGENTS.md")
+
+            try write(root, "分叉/a.md")
+            try write(root, "分叉/b.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("分叉/一.md").path, withDestinationPath: "@a.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("分叉/二.md").path, withDestinationPath: "@b.md")
+            try expect(NoteIndex.referenceTarget(inFolder: "分叉", root: root, showHidden: false) == nil)
+
+            try write(root, "隐藏/其他.md")
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("隐藏/.secret.md").path, withDestinationPath: "@其他.md")
+            try expect(NoteIndex.referenceTarget(inFolder: "隐藏", root: root, showHidden: false) == nil)
+            try expectEqual(NoteIndex.referenceTarget(inFolder: "隐藏", root: root, showHidden: true), "隐藏/其他.md")
+        },
     ]
 }
 
