@@ -47,7 +47,9 @@ final class Notebooks: ObservableObject {
 
     func account(_ id: String) -> Account? { state.accounts.first { $0.id == id } }
 
-    func dir(_ notebook: Notebook) -> URL { root.appendingPathComponent(notebook.dir, isDirectory: true) }
+    func dir(_ notebook: Notebook) -> URL {
+        notebook.folderPath.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? root.appendingPathComponent(notebook.dir, isDirectory: true)
+    }
 
     func setCurrent(_ id: String) { update { $0.currentNotebookId = id } }
 
@@ -95,8 +97,9 @@ final class Notebooks: ObservableObject {
 
     // MARK: - Notebooks
 
-    /// Creates a private repository in the cloud, downloads it and records the notebook.
-    func create(name: String, account: Account, repoPath: String, onProgress: @escaping (String) -> Void) async throws -> Notebook {
+    /// Creates a private repository in the cloud, downloads it into [folder] (an empty folder the user picked;
+    /// nil for the default place) and records the notebook.
+    func create(name: String, account: Account, repoPath: String, folder: URL? = nil, onProgress: @escaping (String) -> Void) async throws -> Notebook {
         let token = try await token(account)
         onProgress("正在云端创建笔记本…")
         var path = repoPath
@@ -110,7 +113,7 @@ final class Notebooks: ObservableObject {
                 path = "\(repoPath)-\(RepoNames.randomSuffix())"
             }
         }
-        let notebook = try await download(name: name, account: account, url: created!.cloneUrl, onProgress: onProgress)
+        let notebook = try await download(name: name, account: account, url: created!.cloneUrl, folder: folder ?? NotebookFolders.defaultFolder(named: path), onProgress: onProgress)
         let meta = dir(notebook).appendingPathComponent(".jitnote/notebook.json")
         try FileManager.default.createDirectory(at: meta.deletingLastPathComponent(), withIntermediateDirectories: true)
         let info: [String: Any] = [
@@ -134,9 +137,10 @@ final class Notebooks: ObservableObject {
             .map { ($0, local.contains(Self.sameRepoKey($0.cloneUrl))) }
     }
 
-    /// Downloads an existing repository as a notebook.
-    func importNotebook(url: String, account: Account, name: String, onProgress: @escaping (String) -> Void) async throws -> Notebook {
-        var notebook = try await download(name: name, account: account, url: url.trimmingCharacters(in: .whitespaces), onProgress: onProgress)
+    /// Downloads an existing repository as a notebook, into [folder] (an empty folder the user picked; nil for the default place).
+    func importNotebook(url: String, account: Account, name: String, folder: URL? = nil, onProgress: @escaping (String) -> Void) async throws -> Notebook {
+        let trimmed = url.trimmingCharacters(in: .whitespaces)
+        var notebook = try await download(name: name, account: account, url: trimmed, folder: folder ?? NotebookFolders.defaultFolder(named: Self.repoName(of: trimmed)), onProgress: onProgress)
         let meta = dir(notebook).appendingPathComponent(".jitnote/notebook.json")
         if name.trimmingCharacters(in: .whitespaces).isEmpty,
            let data = try? Data(contentsOf: meta),
@@ -147,26 +151,37 @@ final class Notebooks: ObservableObject {
         return notebook
     }
 
-    private func download(name: String, account: Account, url: String, onProgress: @escaping (String) -> Void) async throws -> Notebook {
+    /// The repository's own name: the last part of its address, without ".git".
+    static func repoName(of url: String) -> String {
+        var name = url
+        while name.hasSuffix("/") { name.removeLast() }
+        name = name.components(separatedBy: "/").last ?? name
+        if name.hasSuffix(".git") { name.removeLast(4) }
+        return name
+    }
+
+    private func download(name: String, account: Account, url: String, folder: URL, onProgress: @escaping (String) -> Void) async throws -> Notebook {
         let id = UUID().uuidString
-        var fallback = url
-        while fallback.hasSuffix("/") { fallback.removeLast() }
-        fallback = fallback.components(separatedBy: "/").last ?? fallback
-        if fallback.hasSuffix(".git") { fallback.removeLast(4) }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
+        // Checked again here: the folder may have changed since the form looked at it.
+        if let problem = NotebookFolders.problem(with: folder, otherNotebooks: state.notebooks.map(dir)) { throw SyncError(.other, problem) }
         let notebook = Notebook(
             id: id,
-            name: trimmed.isEmpty ? fallback : trimmed,
+            name: trimmed.isEmpty ? Self.repoName(of: url) : trimmed,
             accountId: account.id,
             remoteUrl: url,
             dir: id,
             createdAt: nowMillis(),
             // A fresh download is, by definition, in sync with the cloud.
-            lastSyncAt: nowMillis()
+            lastSyncAt: nowMillis(),
+            folderPath: folder.path,
+            folderChosen: !NotebookFolders.isInDefaultRoot(folder)
         )
         onProgress("正在下载笔记本…")
         let credentials = try await credentials(account)
-        let target = dir(notebook)
+        let target = folder
+        // Finder litter does not make a folder "not empty" for the user, but a download refuses to start in it.
+        try? FileManager.default.removeItem(at: target.appendingPathComponent(".DS_Store"))
         _ = try await Self.background {
             try NotebookGit.clone(url: url, into: target, credentials: credentials) { received, total in
                 guard total > 0 else { return }
@@ -182,10 +197,12 @@ final class Notebooks: ObservableObject {
         updateNotebook(notebook.id) { $0.name = name }
     }
 
-    /// Removes the notebook from this Mac only. The cloud repository is left alone.
+    /// Removes the notebook from this Mac only. The cloud repository is left alone. The folder goes too,
+    /// unless the user picked it: then whatever is in it, notes or not, stays exactly where it is.
     func deleteLocal(_ notebook: Notebook) async {
         let folder = dir(notebook)
-        try? await run(notebook) { _ in try? FileManager.default.removeItem(at: folder) }
+        let removesFolder = !notebook.folderChosen
+        try? await run(notebook) { _ in if removesFolder { try? FileManager.default.removeItem(at: folder) } }
         update { s in
             s.notebooks.removeAll { $0.id == notebook.id }
             s.expandedFolders[notebook.id] = nil

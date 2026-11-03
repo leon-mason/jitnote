@@ -61,6 +61,8 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree (click a folder to expand or collapse it, a file to open it), and the open note. ⌘N creates a note, ⌘R syncs, ⌘E switches between editing and preview (the default is set under Settings → 通用).
 4. When a new version is out, the app offers to download it; click "打开安装包" (Open installer) and drag the new app onto Applications, as when installing, choosing Replace. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
 
+**Where notebooks live**: when you add a notebook the app shows where it will be saved — by default `~/Jitnote/<repository name>`; "更改…" lets you pick your own **empty folder** (the picker can create one). The place cannot be changed afterwards. Click the notebook name at the top of the left column and choose "打开文件夹" (Open folder) to see it in Finder, or "复制路径" (Copy path) to give it to an AI tool such as Claude Code or Cursor as its project folder. The folder is an ordinary Git repository: it does not matter if the AI edits files or even commits; sync uploads it all. A note that is open in the app and gets changed by another program shows the new text right away. Do not put a notebook in a folder that iCloud Drive or Dropbox syncs: they fight with the notebook's own sync. Removing a notebook deletes its folder if it is in the default place; a folder you picked is left exactly as it is.
+
 ## Development
 
 ### Android

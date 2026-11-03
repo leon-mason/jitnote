@@ -698,6 +698,8 @@ final class NotebookGit: @unchecked Sendable {
         Git2.initialize()
         let context = TransferContext(credentials: credentials, onProgress: onProgress)
         var options = git_clone_options()
+        // A folder the user chose (an empty one) must survive a failed download; only what was put in it goes.
+        let existed = FileManager.default.fileExists(atPath: dir.path)
         do {
             try Git2.check(git_clone_options_init(&options, UInt32(GIT_CLONE_OPTIONS_VERSION)))
             context.install(&options.fetch_opts.callbacks)
@@ -708,7 +710,13 @@ final class NotebookGit: @unchecked Sendable {
             defer { git_repository_free(repo) }
             try prepare(repo!)
         } catch {
-            try? FileManager.default.removeItem(at: dir)
+            if existed {
+                for item in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+                    try? FileManager.default.removeItem(at: item)
+                }
+            } else {
+                try? FileManager.default.removeItem(at: dir)
+            }
             throw classify(error)
         }
         return NotebookGit(workTree: dir)

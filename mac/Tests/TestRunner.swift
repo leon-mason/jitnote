@@ -32,6 +32,7 @@ enum TestRunner {
             ("NotebookGit", NotebookGitTests.all),
             ("NoteSaver", NoteSaverTests.all),
             ("FolderWatcher", FolderWatcherTests.all),
+            ("NotebookFolders", NotebookFolderTests.all),
             ("NoteIndex", NoteIndexTests.all),
             ("FileTree", FileTreeTests.all),
             ("NoteAssets", NoteAssetsTests.all),

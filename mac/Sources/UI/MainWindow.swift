@@ -545,6 +545,10 @@ private struct Sidebar: View {
                 Divider()
                 Button("添加笔记本…") { addingNotebook = true }
                 Button("管理笔记本…") { openSettings() }
+                Divider()
+                // For pointing an AI tool at the notebook: its folder is a plain Git folder anyone can work in.
+                Button("打开文件夹") { NSWorkspace.shared.open(notebooks.dir(notebook)) }
+                Button("复制路径") { copyToPasteboard(notebooks.dir(notebook).path) }
             } label: {
                 Label(notebook.name, systemImage: "books.vertical")
                     .font(.headline)

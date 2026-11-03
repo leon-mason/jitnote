@@ -40,6 +40,30 @@ struct Notebook: Codable, Identifiable, Equatable, Hashable {
     let createdAt: Int64
     var lastSyncAt: Int64?
     var lastSyncError: String?
+    /// Where the working copy is, as an absolute path, for notebooks made with a chosen or default place
+    /// of their own (`NotebookFolders`). nil for the first notebooks: those live under the app's folder, in `dir`.
+    /// Never changed after the notebook is created.
+    var folderPath: String?
+    /// The user picked this place instead of the default one. Removing the notebook then leaves the
+    /// folder and everything in it alone.
+    var folderChosen = false
+}
+
+extension Notebook {
+    /// Notebooks saved by earlier versions have neither `folderPath` nor `folderChosen`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        accountId = try c.decode(String.self, forKey: .accountId)
+        remoteUrl = try c.decode(String.self, forKey: .remoteUrl)
+        dir = try c.decode(String.self, forKey: .dir)
+        createdAt = try c.decode(Int64.self, forKey: .createdAt)
+        lastSyncAt = try c.decodeIfPresent(Int64.self, forKey: .lastSyncAt)
+        lastSyncError = try c.decodeIfPresent(String.self, forKey: .lastSyncError)
+        folderPath = try c.decodeIfPresent(String.self, forKey: .folderPath)
+        folderChosen = try c.decodeIfPresent(Bool.self, forKey: .folderChosen) ?? false
+    }
 }
 
 enum NoteSort: String, Codable, CaseIterable, Identifiable {

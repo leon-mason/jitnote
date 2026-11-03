@@ -7,7 +7,8 @@ import WebKit
 /// access. Commands arrive as distributed notifications named "Jitnote.debug":
 ///   snapshot <path-prefix>   every visible window → <prefix>-<n>.png
 ///   account <login> <password>   connects an "other" account (real code path, token in Keychain)
-///   import <url>              downloads a notebook with the first account (real code path)
+///   import <url> [folder]    downloads a notebook with the first account (real code path), into [folder] or the default place
+///   remove <name>             removes the notebook of that name from this Mac (real code path: the folder goes unless it was chosen)
 ///   forget-accounts           disconnects every account, removing their Keychain tokens
 ///   settings                  opens the Settings window
 ///   js <expression>           evaluates in the editor and logs the result
@@ -43,14 +44,21 @@ enum DebugHooks {
             snapshot(prefix: String(command.dropFirst("snapshot ".count)))
         } else if words.first == "account", words.count == 3 {
             Task { _ = try? await notebooks.addAccount(provider: .other, token: words[2], username: words[1], email: nil) }
-        } else if words.first == "import", words.count == 2, let account = notebooks.state.accounts.first {
+        } else if words.first == "import", words.count == 2 || words.count == 3, let account = notebooks.state.accounts.first {
+            let folder = words.count == 3 ? URL(fileURLWithPath: words[2], isDirectory: true) : nil
             Task {
                 do {
-                    let notebook = try await notebooks.importNotebook(url: words[1], account: account, name: "", onProgress: { _ in })
+                    let notebook = try await notebooks.importNotebook(url: words[1], account: account, name: "", folder: folder, onProgress: { _ in })
                     notebooks.setCurrent(notebook.id)
+                    NSLog("debug import: \(notebooks.dir(notebook).path) chosen=\(notebook.folderChosen)")
                 } catch {
                     NSLog("import failed: \(error)")
                 }
+            }
+        } else if words.first == "remove", words.count == 2, let notebook = notebooks.state.notebooks.first(where: { $0.name == words[1] }) {
+            Task {
+                await notebooks.deleteLocal(notebook)
+                NSLog("debug remove: done")
             }
         } else if words.first == "js" {
             let web = NSApp.windows.flatMap { $0.contentView.map(allSubviews) ?? [] }.compactMap { $0 as? WKWebView }.first

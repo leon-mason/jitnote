@@ -72,6 +72,7 @@ struct ManageNotebooksView: View {
                         Menu {
                             Button("重命名…") { renaming = notebook }
                             Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([notebooks.dir(notebook)]) }
+                            Button("复制路径") { copyToPasteboard(notebooks.dir(notebook).path) }
                             Divider()
                             Button("从这台电脑移除…", role: .destructive) {
                                 Task { removing = (notebook, await notebooks.hasUnsyncedWork(notebook)) }
@@ -109,10 +110,23 @@ struct ManageNotebooksView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text(removing?.unsynced == true
-                ? "这个笔记本还有没同步到云端的修改，移除后这些修改会丢失。建议先点同步。\n\n云端的笔记不会被删除，以后可以重新下载。"
-                : "只是从这台电脑上移除，云端的笔记不会被删除，以后可以重新下载。")
+            Text(removalMessage)
         }
+    }
+
+    /// What removing does to the folder depends on who chose it (design.md, "笔记本文件夹"), and so does what
+    /// is lost: a folder the user chose stays, with any unsynced edits still in it.
+    private var removalMessage: String {
+        guard let removing else { return "" }
+        let path = notebooks.dir(removing.notebook).path
+        if removing.notebook.folderChosen {
+            return (removing.unsynced
+                ? "这个笔记本还有没同步到云端的修改，移除后它们不会再同步，但仍留在文件夹里。建议先点同步。\n\n"
+                : "")
+                + "你选的文件夹「\(path)」和里面的所有文件会原样留在原处，App 不会删除任何东西。\n\n云端的笔记也不会被删除。以后想再添加它，要选一个新的空文件夹。"
+        }
+        return (removing.unsynced ? "这个笔记本还有没同步到云端的修改，移除后这些修改会丢失。建议先点同步。\n\n" : "")
+            + "这台电脑上的文件夹「\(path)」和里面的所有文件会一起删除。\n\n云端的笔记不会被删除，以后可以重新下载。"
     }
 }
 
@@ -311,6 +325,56 @@ struct AddNotebookView: View {
     }
 }
 
+/// Where a new notebook goes on this Mac: the default place, or an empty folder the user picks. Shown when a
+/// notebook is created or downloaded; there is no way to change it afterwards (design.md, "笔记本文件夹").
+private struct FolderChoice: View {
+    let defaultFolder: URL
+    /// nil while the default place is in use.
+    @Binding var picked: URL?
+    @EnvironmentObject private var notebooks: Notebooks
+
+    private var folder: URL { picked ?? defaultFolder }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("保存位置").foregroundStyle(.secondary)
+                Text(abbreviated(folder)).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("更改…", action: choose)
+                if picked != nil { Button("用默认位置") { picked = nil }.buttonStyle(.link) }
+            }
+            if let problem = NotebookFolders.problem(with: folder, otherNotebooks: notebooks.state.notebooks.map(notebooks.dir)) {
+                Text(problem).font(.caption).foregroundStyle(.red)
+            } else if let warning = NotebookFolders.syncWarning(for: folder) {
+                Text(warning).font(.caption).foregroundStyle(.orange)
+            }
+            Text("笔记本里的所有文件都在这个文件夹里。创建后不能更改位置。").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func abbreviated(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        panel.message = "选一个空文件夹，笔记本会放在里面。没有合适的，点「新建文件夹」。"
+        let start = folder.deletingLastPathComponent()
+        panel.directoryURL = FileManager.default.fileExists(atPath: start.path) ? start : URL(fileURLWithPath: NSHomeDirectory())
+        if panel.runModal() == .OK, let url = panel.url { picked = url }
+    }
+}
+
+/// Puts [text] on the clipboard, e.g. a notebook's folder path to paste into an AI tool as its project folder.
+func copyToPasteboard(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+}
+
 private struct AccountPicker: View {
     let accounts: [Account]
     @Binding var selection: String?
@@ -332,7 +396,9 @@ private struct CreateNotebookForm: View {
     @State private var path = ""
     @State private var pathEdited = false
     @State private var advanced = false
+    @State private var pickedFolder: URL?
 
+    private var folder: URL { pickedFolder ?? NotebookFolders.defaultFolder(named: path) }
     private var creatable: [Account] { notebooks.state.accounts.filter { $0.provider.canCreateRepos } }
     private var account: Account? { creatable.first { $0.id == accountId } ?? creatable.first }
 
@@ -350,16 +416,18 @@ private struct CreateNotebookForm: View {
                     Text("只能用英文字母、数字和 - _ .，以字母开头。一般不用改。").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            FolderChoice(defaultFolder: NotebookFolders.defaultFolder(named: path), picked: $pickedFolder)
             Text("会在你的 \(account?.provider.label ?? "") 账号里建一个只有你自己能看到的存储空间。").foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("创建") {
                     guard let account else { return }
-                    let name = name.trimmingCharacters(in: .whitespaces), path = path
-                    onCreate { progress in try await notebooks.create(name: name, account: account, repoPath: path, onProgress: progress) }
+                    let name = name.trimmingCharacters(in: .whitespaces), path = path, folder = folder
+                    onCreate { progress in try await notebooks.create(name: name, account: account, repoPath: path, folder: folder, onProgress: progress) }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || !RepoNames.isValid(path))
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || !RepoNames.isValid(path)
+                    || NotebookFolders.problem(with: folder, otherNotebooks: notebooks.state.notebooks.map(notebooks.dir)) != nil)
             }
         }
     }
@@ -376,8 +444,15 @@ private struct ExistingNotebookForm: View {
     @State private var useUrl = false
     @State private var url = ""
     @State private var name = ""
+    @State private var pickedFolder: URL?
 
     private var account: Account? { notebooks.state.accounts.first { $0.id == accountId } ?? notebooks.state.accounts.first }
+
+    private func folder(forCloneUrl cloneUrl: String) -> URL { pickedFolder ?? NotebookFolders.defaultFolder(named: Notebooks.repoName(of: cloneUrl)) }
+
+    private func canStart(_ cloneUrl: String) -> Bool {
+        NotebookFolders.problem(with: folder(forCloneUrl: cloneUrl), otherNotebooks: notebooks.state.notebooks.map(notebooks.dir)) == nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -430,12 +505,13 @@ private struct ExistingNotebookForm: View {
             Text("在浏览器里打开仓库页面，复制地址栏里的网址，粘贴到这里。").foregroundStyle(.secondary)
             TextField("网址", text: $url, prompt: Text("https://gitee.com/用户名/仓库")).textFieldStyle(.roundedBorder)
             TextField("在 App 里叫什么（可不填）", text: $name).textFieldStyle(.roundedBorder)
+            FolderChoice(defaultFolder: NotebookFolders.defaultFolder(named: Notebooks.repoName(of: RepoUrls.toCloneUrl(url))), picked: $pickedFolder)
             HStack {
                 if account?.provider != .other { Button("从账号里选") { useUrl = false }.buttonStyle(.link) }
                 Spacer()
                 Button("开始下载") { start(RepoUrls.toCloneUrl(url)) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!url.trimmingCharacters(in: .whitespaces).hasPrefix("http"))
+                    .disabled(!url.trimmingCharacters(in: .whitespaces).hasPrefix("http") || !canStart(RepoUrls.toCloneUrl(url)))
             }
         }
     }
@@ -449,10 +525,13 @@ private struct ExistingNotebookForm: View {
                 Text("这个仓库比较大（约 \(size / 1024) MB），第一次下载会花一些时间。").foregroundStyle(.orange)
             }
             TextField("在 App 里叫什么", text: $name).textFieldStyle(.roundedBorder)
+            FolderChoice(defaultFolder: NotebookFolders.defaultFolder(named: Notebooks.repoName(of: repo.cloneUrl)), picked: $pickedFolder)
             HStack {
                 Button("换一个") { picked = nil }.buttonStyle(.link)
                 Spacer()
-                Button("开始下载") { start(repo.cloneUrl) }.keyboardShortcut(.defaultAction)
+                Button("开始下载") { start(repo.cloneUrl) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canStart(repo.cloneUrl))
             }
         }
     }
@@ -469,8 +548,8 @@ private struct ExistingNotebookForm: View {
 
     private func start(_ cloneUrl: String) {
         guard let account else { return }
-        let name = name
-        onImport { progress in try await notebooks.importNotebook(url: cloneUrl, account: account, name: name, onProgress: progress) }
+        let name = name, folder = folder(forCloneUrl: cloneUrl)
+        onImport { progress in try await notebooks.importNotebook(url: cloneUrl, account: account, name: name, folder: folder, onProgress: progress) }
     }
 
     private func load() async {
