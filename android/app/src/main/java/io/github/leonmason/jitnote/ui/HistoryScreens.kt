@@ -72,12 +72,15 @@ fun VersionPreviewScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Ve
     val notebook = notebooks.notebook(screen.notebookId) ?: return
     var content by remember { mutableStateOf<String?>(null) }
     var missing by remember { mutableStateOf(false) }
+    var binary by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(screen) {
         val bytes = notebooks.withLock(notebook) { notebooks.git(notebook).readAt(screen.version.commit, screen.path) }
         missing = bytes == null
-        content = bytes?.toString(Charsets.UTF_8) ?: ""
+        // Office files and the like are bytes, not notes. Showing them as text would be garbage.
+        binary = bytes != null && !NoteFiles.isTextName(screen.path)
+        content = if (missing || binary) "" else bytes!!.toString(Charsets.UTF_8)
     }
 
     Scaffold(
@@ -92,6 +95,7 @@ fun VersionPreviewScreen(notebooks: Notebooks, nav: Navigator, screen: Screen.Ve
             when {
                 text == null -> Waiting("正在读取…")
                 missing -> EmptyState("这个版本里笔记已被删除", "恢复这个版本会删除当前的笔记。")
+                binary -> EmptyState("这个版本不能在这里预览", "文件原样留在历史里。可以恢复成这个版本。")
                 else -> NoteWebView(
                     notebookRoot = notebooks.dir(notebook),
                     notePath = screen.path,

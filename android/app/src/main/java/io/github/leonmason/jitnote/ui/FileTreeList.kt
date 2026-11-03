@@ -117,7 +117,7 @@ fun FileTreeRow(
                     menu = false
                     onNewFolderHere()
                 })
-            } else if (NoteFiles.isTextName(entry.name)) {
+            } else if (!NoteAssets.isImage(file)) {
                 DropdownMenuItem(text = { Text("历史版本") }, onClick = {
                     menu = false
                     onHistory()

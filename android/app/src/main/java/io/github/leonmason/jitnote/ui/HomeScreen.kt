@@ -155,13 +155,14 @@ private fun NotesHome(
         if (paths != expanded) notebooks.setExpandedFolders(notebook.id, paths)
     }
 
-    // A file picked in the tree: notes and text open in the editor, pictures in the viewer.
+    // A file picked in the tree: notes and text open in the editor, pictures in the viewer,
+    // and anything else on a page that hands it to the phone's default app.
     fun openFile(path: String) {
         val file = File(root, path)
         when {
             NoteAssets.isImage(file) -> nav.push(Screen.Image(notebook.id, path))
             NoteFiles.isEditable(file) -> nav.push(Screen.Editor(notebook.id, path))
-            else -> scope.launch { snackbar.showSnackbar("这种文件暂时不能在手机上打开") }
+            else -> nav.push(Screen.ExternalFile(notebook.id, path))
         }
     }
 

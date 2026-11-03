@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notebook working copies, so another app can read and overwrite one file. Nothing else under filesDir. -->
+<paths>
+    <files-path name="notebooks" path="notebooks/" />
+</paths>

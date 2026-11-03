@@ -30,6 +30,9 @@ sealed interface Screen {
     data class VersionPreview(val notebookId: String, val path: String, val version: Version) : Screen
     data class Conflicts(val notebookId: String) : Screen
     data class Image(val notebookId: String, val path: String) : Screen
+
+    /** A file this app cannot show itself; the phone's default app may open it. */
+    data class ExternalFile(val notebookId: String, val path: String) : Screen
 }
 
 /** A plain back stack; survives rotation as a ViewModel. */
@@ -94,5 +97,6 @@ private fun ScreenContent(notebooks: Notebooks, updates: AppUpdates, nav: Naviga
         is Screen.VersionPreview -> VersionPreviewScreen(notebooks, nav, screen)
         is Screen.Conflicts -> ConflictsScreen(notebooks, nav, screen)
         is Screen.Image -> ImageViewerScreen(notebooks, nav, screen)
+        is Screen.ExternalFile -> ExternalFileScreen(notebooks, nav, screen)
     }
 }
