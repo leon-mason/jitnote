@@ -11,6 +11,7 @@ import Foundation
 ///   (ties go to the cloud); the other version stays in history and is recorded as a
 ///   `ConflictRecord` so the user can switch to it.
 /// - a file deleted on one side and changed on the other is kept.
+/// - another program's `index.lock` or unfinished merge is never cleaned up (see `prepareForSync`).
 ///
 /// Not thread-safe: callers serialize access per notebook (see `Notebooks.run`), which is why it is
 /// marked Sendable without checks.
@@ -110,7 +111,8 @@ final class NotebookGit: @unchecked Sendable {
     // MARK: - Sync internals
 
     private func syncInternal(_ repo: OpaquePointer, credentials: Credentials?, author: Author, device: String) throws -> SyncResult {
-        try recover(repo)
+        try prepareForSync(repo)
+        defer { releaseSyncMarker(repo) }
         try applyIdentity(repo, author)
         _ = try commitAllInternal(repo, author: author, device: device, message: nil)
         let branch = try branchName(repo)
@@ -281,7 +283,44 @@ final class NotebookGit: @unchecked Sendable {
         throw SyncError(.rejected, "云端拒绝了上传：\(rejection)")
     }
 
-    /// Leaves the repository in a clean state after a crash in the middle of a previous sync.
+    /// How long a sync waits for another program's `index.lock` to go away. Programs working on the
+    /// notebook (an AI, a terminal) hold it for well under a second per command; the wait is a
+    /// variable only so tests do not have to sit it out.
+    static var indexLockWait: TimeInterval = 3
+
+    /// Written to `.git/jitnote/` while a sync runs. A leftover one means a sync of this app died, which is
+    /// the only case where a half-finished merge or an `index.lock` is ours to clean up.
+    static let syncMarkerPath = "jitnote/syncing"
+
+    private var syncMarker: URL { gitDir.appendingPathComponent(Self.syncMarkerPath) }
+
+    /// Starts a sync from a state it may build on. Another program's lock or unfinished merge is left
+    /// alone (design.md, product principle 5): removing them could throw away its work.
+    private func prepareForSync(_ repo: OpaquePointer) throws {
+        if FileManager.default.fileExists(atPath: syncMarker.path) {
+            try recover(repo)
+        } else {
+            let lock = gitDir.appendingPathComponent("index.lock")
+            let deadline = Date().addingTimeInterval(Self.indexLockWait)
+            while FileManager.default.fileExists(atPath: lock.path) {
+                if Date() >= deadline { throw SyncError(.other, "有其他程序正在处理这个笔记本，请稍后再同步") }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            guard git_repository_state(repo) == Int32(GIT_REPOSITORY_STATE_NONE.rawValue) else {
+                throw SyncError(.other, "有其他程序正在合并这个笔记本，请等它完成后再同步")
+            }
+        }
+        try FileManager.default.createDirectory(at: syncMarker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: syncMarker)
+    }
+
+    /// Keeps the marker when a failed sync left a merge behind, so the next sync still recognizes it as ours.
+    private func releaseSyncMarker(_ repo: OpaquePointer) {
+        guard git_repository_state(repo) == Int32(GIT_REPOSITORY_STATE_NONE.rawValue) else { return }
+        try? FileManager.default.removeItem(at: syncMarker)
+    }
+
+    /// Leaves the repository in a clean state after a crash in the middle of a previous sync of this app.
     private func recover(_ repo: OpaquePointer) throws {
         try? FileManager.default.removeItem(at: gitDir.appendingPathComponent("index.lock"))
         guard git_repository_state(repo) != Int32(GIT_REPOSITORY_STATE_NONE.rawValue) else { return }
@@ -515,11 +554,16 @@ final class NotebookGit: @unchecked Sendable {
         try Git2.check(git_checkout_head(repo, &checkout))
     }
 
+    /// Gives other tools working in this notebook a name to commit with, but never replaces one the
+    /// user (or an earlier setup) already chose. This app's own commits name their author explicitly.
     private func applyIdentity(_ repo: OpaquePointer, _ author: Author) throws {
         try withConfig(repo) { config in
-            if Self.configString(config, "user.name") == author.name && Self.configString(config, "user.email") == author.email { return }
-            try Git2.check(git_config_set_string(config, "user.name", author.name))
-            try Git2.check(git_config_set_string(config, "user.email", author.email))
+            if Self.configString(config, "user.name") == nil {
+                try Git2.check(git_config_set_string(config, "user.name", author.name))
+            }
+            if Self.configString(config, "user.email") == nil {
+                try Git2.check(git_config_set_string(config, "user.email", author.email))
+            }
         }
     }
 

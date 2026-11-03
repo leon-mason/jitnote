@@ -202,8 +202,11 @@ class NotebookGitTest {
         assertEquals("恢复历史版本：日记", a.log().first())
     }
 
-    @Test
-    fun recoversFromInterruptedMerge() {
+    /**
+     * Two devices that both edited note.md; returns the one left in the middle of merging the other's edit,
+     * the way a crash (or another tool such as an AI's Git client) leaves it.
+     */
+    private fun startConflictingMerge(): NotebookGit {
         val a = device("a")
         a.write("note.md", "base")
         a.syncNow()
@@ -212,16 +215,141 @@ class NotebookGitTest {
         a.syncNow()
         b.write("note.md", "b")
         b.commitAll(author, "b")
-        // Simulate a crash in the middle of a conflicting merge.
         Git.open(b.workTree).use { git ->
             git.fetch().call()
             git.merge().include(git.repository.resolve("refs/remotes/origin/main")).call()
             assertEquals("MERGING", git.repository.repositoryState.name)
         }
+        return b
+    }
+
+    private fun syncMarker(git: NotebookGit) = File(git.workTree, ".git/${NotebookGit.SYNC_MARKER}")
+
+    private fun NotebookGit.syncFailure(): SyncException? =
+        try {
+            syncNow()
+            null
+        } catch (e: SyncException) {
+            e
+        }
+
+    private fun NotebookGit.configValue(name: String): String? =
+        Git.open(workTree).use { it.repository.config.getString("user", null, name) }
+
+    private fun NotebookGit.setConfig(name: String, value: String) = Git.open(workTree).use {
+        it.repository.config.setString("user", null, name, value)
+        it.repository.config.save()
+    }
+
+    @Test
+    fun recoversFromInterruptedMerge() {
+        val b = startConflictingMerge()
+        // A sync of this app that died leaves its marker behind; that is what makes the merge ours to abort.
+        syncMarker(b).apply {
+            parentFile?.mkdirs()
+            writeText("")
+        }
 
         b.syncNow()
         Git.open(b.workTree).use { assertEquals("SAFE", it.repository.repositoryState.name) }
         assertFalse(b.hasUnsyncedWork())
+        assertFalse(syncMarker(b).exists())
+    }
+
+    @Test
+    fun leavesAnotherToolsUnfinishedMergeAlone() {
+        val b = startConflictingMerge()
+        val conflicted = b.read("note.md")
+
+        val failure = b.syncFailure()
+
+        assertNotNull("sync should refuse to touch a merge it did not start", failure)
+        assertTrue(failure!!.message!!.contains("合并"))
+        Git.open(b.workTree).use { assertEquals("MERGING", it.repository.repositoryState.name) }
+        assertEquals(conflicted, b.read("note.md"))
+        assertFalse(syncMarker(b).exists())
+    }
+
+    @Test
+    fun waitsForAnotherProgramsIndexLock() {
+        val a = device("a")
+        a.write("note.md", "x")
+        val lock = File(a.workTree, ".git/index.lock").apply { writeText("") }
+
+        val saved = NotebookGit.indexLockWaitMillis
+        try {
+            NotebookGit.indexLockWaitMillis = 300
+            val failure = a.syncFailure()
+            assertNotNull("a lock that never goes away should stop the sync", failure)
+            assertTrue(failure!!.message!!.contains("稍后再同步"))
+            assertTrue("the other program's lock must stay", lock.exists())
+            assertTrue("nothing may be committed while the lock is held", a.hasLocalChanges())
+
+            // The other program finishes while the sync is waiting.
+            NotebookGit.indexLockWaitMillis = 5_000
+            Thread {
+                Thread.sleep(400)
+                lock.delete()
+            }.start()
+            assertTrue(a.syncNow().pushed)
+        } finally {
+            NotebookGit.indexLockWaitMillis = saved
+        }
+    }
+
+    @Test
+    fun pushesACommitMadeByAnotherToolAsIs() {
+        val a = device("a")
+        a.write("note.md", "written by an AI")
+        a.commitAll(Author("AI", "ai@example.com"), "ai")
+        val theirs = a.history("note.md").first().commit
+
+        val result = a.syncNow()
+
+        assertTrue(result.pushed)
+        assertEquals(listOf("新建：note"), a.log())
+        assertEquals(listOf(theirs), device("c").history("note.md").map { it.commit })
+    }
+
+    @Test
+    fun mergesACommitMadeByAnotherToolWithoutRewritingIt() {
+        val a = device("a")
+        val b = device("b")
+        a.write("ai.md", "from the AI")
+        a.commitAll(Author("AI", "ai@example.com"), "ai")
+        val theirs = a.history("ai.md").first().commit
+        b.write("other.md", "from the cloud")
+        b.syncNow()
+
+        val result = a.syncNow()
+
+        assertTrue(result.pulled && result.pushed)
+        assertEquals("from the cloud", a.read("other.md"))
+        // Merge, never rebase: the other tool's commit keeps its identity and reaches the cloud untouched.
+        assertEquals(listOf(theirs), device("c").history("ai.md").map { it.commit })
+    }
+
+    @Test
+    fun keepsAnIdentityThatIsAlreadyConfigured() {
+        val a = device("a")
+        a.setConfig("name", "Me")
+        a.setConfig("email", "me@example.org")
+        a.write("note.md", "x")
+        a.syncNow()
+
+        assertEquals("Me", a.configValue("name"))
+        assertEquals("me@example.org", a.configValue("email"))
+    }
+
+    @Test
+    fun writesAnIdentityForOtherToolsWhenNoneIsConfigured() {
+        val a = device("a")
+        assertNull(a.configValue("name"))
+        a.write("note.md", "x")
+        a.syncNow()
+
+        assertEquals("Tester", a.configValue("name"))
+        assertEquals("tester@example.com", a.configValue("email"))
     }
 
     @Test

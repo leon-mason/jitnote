@@ -82,6 +82,63 @@ enum NotebookGitTests {
         }
     }
 
+    static func setConfig(_ git: NotebookGit, _ name: String, _ value: String) throws {
+        try withRepo(git) { repo in
+            var config: OpaquePointer?
+            try Git2.check(git_repository_config(&config, repo))
+            defer { git_config_free(config) }
+            try Git2.check(git_config_set_string(config, name, value))
+        }
+    }
+
+    static func syncMarker(_ git: NotebookGit) -> URL {
+        git.workTree.appendingPathComponent(".git").appendingPathComponent(NotebookGit.syncMarkerPath)
+    }
+
+    static func markSyncInProgress(_ git: NotebookGit) throws {
+        let marker = syncMarker(git)
+        try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: marker)
+    }
+
+    /// The error a sync stops with, or nil when it went through.
+    static func syncFailure(_ git: NotebookGit) -> SyncError? {
+        do {
+            try sync(git)
+            return nil
+        } catch {
+            return error as? SyncError
+        }
+    }
+
+    /// Two devices that both edited note.md; returns the one left in the middle of merging the other's edit,
+    /// the way a crash (or another tool such as an AI's Git client) leaves it.
+    static func startConflictingMerge(_ cloud: Cloud) throws -> NotebookGit {
+        let a = try cloud.device("a")
+        try write(a, "note.md", "base")
+        try sync(a)
+        let b = try cloud.device("b")
+        try write(a, "note.md", "a")
+        try sync(a)
+        try write(b, "note.md", "b")
+        try b.commitAll(author: author, device: "b")
+        try withRepo(b) { repo in
+            var remote: OpaquePointer?
+            try Git2.check(git_remote_lookup(&remote, repo, "origin"))
+            defer { git_remote_free(remote) }
+            try Git2.check(git_remote_fetch(remote, nil, nil, nil))
+            var theirs = git_oid()
+            try Git2.check(git_reference_name_to_id(&theirs, repo, "refs/remotes/origin/main"))
+            var annotated: OpaquePointer?
+            try Git2.check(git_annotated_commit_lookup(&annotated, repo, &theirs))
+            defer { git_annotated_commit_free(annotated) }
+            var heads: [OpaquePointer?] = [annotated]
+            try Git2.check(git_merge(repo, &heads, 1, nil, nil))
+            try expectEqual(git_repository_state(repo), Int32(GIT_REPOSITORY_STATE_MERGE.rawValue))
+        }
+        return b
+    }
+
     /// Git stores commit times in whole seconds; make the next commit measurably newer.
     static func tick() { Thread.sleep(forTimeInterval: 1.1) }
 
@@ -246,33 +303,104 @@ enum NotebookGitTests {
 
         TestCase("recoversFromInterruptedMerge") { root in
             let cloud = try Cloud(root)
-            let a = try cloud.device("a")
-            try write(a, "note.md", "base")
-            try sync(a)
-            let b = try cloud.device("b")
-            try write(a, "note.md", "a")
-            try sync(a)
-            try write(b, "note.md", "b")
-            try b.commitAll(author: author, device: "b")
-            // Simulate a crash in the middle of a conflicting merge.
-            try withRepo(b) { repo in
-                var remote: OpaquePointer?
-                try Git2.check(git_remote_lookup(&remote, repo, "origin"))
-                defer { git_remote_free(remote) }
-                try Git2.check(git_remote_fetch(remote, nil, nil, nil))
-                var theirs = git_oid()
-                try Git2.check(git_reference_name_to_id(&theirs, repo, "refs/remotes/origin/main"))
-                var annotated: OpaquePointer?
-                try Git2.check(git_annotated_commit_lookup(&annotated, repo, &theirs))
-                defer { git_annotated_commit_free(annotated) }
-                var heads: [OpaquePointer?] = [annotated]
-                try Git2.check(git_merge(repo, &heads, 1, nil, nil))
-                try expectEqual(git_repository_state(repo), Int32(GIT_REPOSITORY_STATE_MERGE.rawValue))
-            }
+            let b = try startConflictingMerge(cloud)
+            // A sync of this app that died leaves its marker behind; that is what makes the merge ours to abort.
+            try markSyncInProgress(b)
 
             try sync(b)
             try withRepo(b) { try expectEqual(git_repository_state($0), Int32(GIT_REPOSITORY_STATE_NONE.rawValue)) }
             try expect(try !b.hasUnsyncedWork())
+            try expect(!FileManager.default.fileExists(atPath: syncMarker(b).path))
+        },
+
+        TestCase("leavesAnotherToolsUnfinishedMergeAlone") { root in
+            let cloud = try Cloud(root)
+            let b = try startConflictingMerge(cloud)
+            let conflicted = try read(b, "note.md")
+
+            let failure = syncFailure(b)
+            try expect(failure != nil, "sync should refuse to touch a merge it did not start")
+            try expect(failure?.message.contains("合并") == true, failure?.message ?? "")
+            try withRepo(b) { try expectEqual(git_repository_state($0), Int32(GIT_REPOSITORY_STATE_MERGE.rawValue)) }
+            try expectEqual(try read(b, "note.md"), conflicted)
+            try expect(!FileManager.default.fileExists(atPath: syncMarker(b).path))
+        },
+
+        TestCase("waitsForAnotherProgramsIndexLock") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "note.md", "x")
+            let lock = a.workTree.appendingPathComponent(".git/index.lock")
+            try Data().write(to: lock)
+
+            NotebookGit.indexLockWait = 0.3
+            defer { NotebookGit.indexLockWait = 3 }
+            let failure = syncFailure(a)
+            try expect(failure != nil, "a lock that never goes away should stop the sync")
+            try expect(failure?.message.contains("稍后再同步") == true, failure?.message ?? "")
+            try expect(FileManager.default.fileExists(atPath: lock.path), "the other program's lock must stay")
+            try expect(try a.hasLocalChanges(), "nothing may be committed while the lock is held")
+
+            // The other program finishes while the sync is waiting.
+            NotebookGit.indexLockWait = 5
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { try? FileManager.default.removeItem(at: lock) }
+            let result = try sync(a)
+            try expect(result.pushed)
+        },
+
+        TestCase("pushesACommitMadeByAnotherToolAsIs") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try write(a, "note.md", "written by an AI")
+            try a.commitAll(author: Author(name: "AI", email: "ai@example.com"), device: "ai")
+            let theirs = try a.history("note.md").first!.commit
+
+            let result = try sync(a)
+
+            try expect(result.pushed)
+            try expectEqual(try log(a), ["新建：note"])
+            try expectEqual(try cloud.device("c").history("note.md").map(\.commit), [theirs])
+        },
+
+        TestCase("mergesACommitMadeByAnotherToolWithoutRewritingIt") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            let b = try cloud.device("b")
+            try write(a, "ai.md", "from the AI")
+            try a.commitAll(author: Author(name: "AI", email: "ai@example.com"), device: "ai")
+            let theirs = try a.history("ai.md").first!.commit
+            try write(b, "other.md", "from the cloud")
+            try sync(b)
+
+            let result = try sync(a)
+
+            try expect(result.pulled && result.pushed)
+            try expectEqual(try read(a, "other.md"), "from the cloud")
+            // Merge, never rebase: the other tool's commit keeps its identity and reaches the cloud untouched.
+            try expectEqual(try cloud.device("c").history("ai.md").map(\.commit), [theirs])
+        },
+
+        TestCase("keepsAnIdentityThatIsAlreadyConfigured") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try setConfig(a, "user.name", "Me")
+            try setConfig(a, "user.email", "me@example.org")
+            try write(a, "note.md", "x")
+            try sync(a)
+
+            try expectEqual(try configString(a, "user.name"), "Me")
+            try expectEqual(try configString(a, "user.email"), "me@example.org")
+        },
+
+        TestCase("writesAnIdentityForOtherToolsWhenNoneIsConfigured") { root in
+            let cloud = try Cloud(root)
+            let a = try cloud.device("a")
+            try expect(try configString(a, "user.name") == nil)
+            try write(a, "note.md", "x")
+            try sync(a)
+
+            try expectEqual(try configString(a, "user.name"), "Tester")
+            try expectEqual(try configString(a, "user.email"), "tester@example.com")
         },
 
         TestCase("unsyncedWorkIsDetected") { root in

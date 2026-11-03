@@ -38,6 +38,7 @@ import java.net.UnknownHostException
  *   (ties go to the cloud); the other version stays in history and is recorded as a
  *   [ConflictRecord] so the user can switch to it.
  * - a file deleted on one side and changed on the other is kept.
+ * - another program's `index.lock` or unfinished merge is never cleaned up (see [prepareForSync]).
  *
  * Not thread-safe: callers serialize access per notebook.
  */
@@ -108,8 +109,17 @@ class NotebookGit(val workTree: File) {
     // ---------------------------------------------------------------- sync internals
 
     private fun syncInternal(git: Git, provider: CredentialsProvider?, author: Author, device: String): SyncResult {
+        prepareForSync(git)
+        try {
+            return runSync(git, provider, author, device)
+        } finally {
+            // Keep the marker when a failed sync left a merge behind, so the next sync still recognizes it as ours.
+            if (git.repository.repositoryState == RepositoryState.SAFE) syncMarker().delete()
+        }
+    }
+
+    private fun runSync(git: Git, provider: CredentialsProvider?, author: Author, device: String): SyncResult {
         val repo = git.repository
-        recover(git)
         applyIdentity(repo, author)
         commitAllInternal(git, author, device, null)
         val branch = repo.branch
@@ -258,7 +268,34 @@ class NotebookGit(val workTree: File) {
         return true
     }
 
-    /** Leaves the repository in a clean state after a crash in the middle of a previous sync. */
+    /**
+     * Starts a sync from a state it may build on. Another program's lock or unfinished merge is left
+     * alone (design.md, product principle 5): removing them could throw away its work.
+     */
+    private fun prepareForSync(git: Git) {
+        val repo = git.repository
+        if (syncMarker().exists()) {
+            recover(git)
+        } else {
+            val lock = File(repo.directory, "index.lock")
+            val deadline = System.currentTimeMillis() + indexLockWaitMillis
+            while (lock.exists()) {
+                if (System.currentTimeMillis() >= deadline) {
+                    throw SyncException(SyncException.Kind.OTHER, "有其他程序正在处理这个笔记本，请稍后再同步")
+                }
+                Thread.sleep(100)
+            }
+            if (repo.repositoryState != RepositoryState.SAFE) {
+                throw SyncException(SyncException.Kind.OTHER, "有其他程序正在合并这个笔记本，请等它完成后再同步")
+            }
+        }
+        syncMarker().apply {
+            parentFile?.mkdirs()
+            writeText("")
+        }
+    }
+
+    /** Leaves the repository in a clean state after a crash in the middle of a previous sync of this app. */
     private fun recover(git: Git) {
         val repo = git.repository
         File(repo.directory, "index.lock").delete()
@@ -301,6 +338,8 @@ class NotebookGit(val workTree: File) {
 
     private fun conflictFile() = File(workTree, ".git/jitnote/conflicts.json")
 
+    private fun syncMarker() = File(workTree, ".git/$SYNC_MARKER")
+
     private fun saveConflicts(list: List<ConflictRecord>) {
         val file = conflictFile()
         if (list.isEmpty()) {
@@ -317,6 +356,19 @@ class NotebookGit(val workTree: File) {
         private const val TIMEOUT_SECONDS = 60
         private const val MAX_ATTEMPTS = 3
         private val json = Json { ignoreUnknownKeys = true }
+
+        /**
+         * Written to `.git/jitnote/` while a sync runs. A leftover one means a sync of this app died, which is
+         * the only case where a half-finished merge or an `index.lock` is ours to clean up.
+         */
+        internal const val SYNC_MARKER = "jitnote/syncing"
+
+        /**
+         * How long a sync waits for another program's `index.lock` to go away. Programs working on the
+         * notebook hold it for well under a second per command; a variable only so tests do not have to sit it out.
+         */
+        @Volatile
+        internal var indexLockWaitMillis = 3_000L
 
         /** Downloads [url] into [dir]. Works for empty repositories too. */
         fun clone(
@@ -356,14 +408,22 @@ class NotebookGit(val workTree: File) {
 
         private fun Credentials.toProvider() = UsernamePasswordCredentialsProvider(username, password)
 
+        /**
+         * Gives other tools working in this notebook a name to commit with, but never replaces one the
+         * user (or an earlier setup) already chose. This app's own commits name their author explicitly.
+         */
         private fun applyIdentity(repo: Repository, author: Author) {
             val config = repo.config
-            if (config.getString("user", null, "name") == author.name &&
-                config.getString("user", null, "email") == author.email
-            ) return
-            config.setString("user", null, "name", author.name)
-            config.setString("user", null, "email", author.email)
-            config.save()
+            var changed = false
+            if (config.getString("user", null, "name") == null) {
+                config.setString("user", null, "name", author.name)
+                changed = true
+            }
+            if (config.getString("user", null, "email") == null) {
+                config.setString("user", null, "email", author.email)
+                changed = true
+            }
+            if (changed) config.save()
         }
 
         private fun ensureUpstream(repo: Repository, branch: String) {
