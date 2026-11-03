@@ -36,7 +36,32 @@ class NotebookGitTest {
 
     private fun NotebookGit.read(path: String) = File(workTree, path).readText()
 
-    private fun NotebookGit.syncNow(name: String = "phone") = sync(null, author, name)
+    private fun NotebookGit.syncNow(name: String = "phone", choices: Map<String, Side> = emptyMap()) =
+        sync(null, author, name, choices)
+
+    /** Whether any version of [path] in this repository's history had exactly [text]. */
+    private fun NotebookGit.historyHas(path: String, text: String) =
+        history(path).any { v -> readAt(v.commit, path)?.let { String(it) } == text }
+
+    private fun pending(path: String, local: String?, cloud: String?) =
+        PendingConflict(path, local?.toByteArray(), cloud?.toByteArray())
+
+    private fun NotebookGit.state() = Git.open(workTree).use { it.repository.repositoryState.name }
+
+    /** Two devices that edited note.md differently; the cloud has a's edit and b has its own committed. */
+    private fun divergedNote(): Pair<NotebookGit, NotebookGit> {
+        val a = device("a")
+        a.write("note.md", "base")
+        a.syncNow()
+        val b = device("b")
+        a.write("note.md", "from a")
+        a.syncNow()
+        b.write("note.md", "from b")
+        b.commitAll(author, "b")
+        return a to b
+    }
+
+    private fun cloudNote(): String = device("probe-${System.nanoTime()}").read("note.md")
 
     private fun NotebookGit.log(): List<String> = Git.open(workTree).use { git ->
         git.log().call().map { it.shortMessage }
@@ -89,7 +114,7 @@ class NotebookGitTest {
         assertTrue(result.pulled)
         assertFalse(result.pushed)
         assertEquals("v2", b.read("note.md"))
-        assertTrue(result.conflicts.isEmpty())
+        assertTrue(result.pending.isEmpty())
     }
 
     @Test
@@ -107,7 +132,7 @@ class NotebookGitTest {
 
         assertTrue(result.pulled)
         assertTrue(result.pushed)
-        assertTrue(result.conflicts.isEmpty())
+        assertTrue(result.pending.isEmpty())
         assertEquals("a2", b.read("a.md"))
         assertEquals("b2", b.read("b.md"))
 
@@ -117,73 +142,138 @@ class NotebookGitTest {
     }
 
     @Test
-    fun sameLineEditedOnBothSidesKeepsNewerLocalVersion() {
-        val a = device("a")
-        a.write("note.md", "base")
-        a.syncNow()
-        val b = device("b")
+    fun sameLineEditedOnBothSidesAsksAndTouchesNothing() {
+        val (_, b) = divergedNote()
 
-        a.write("note.md", "from a")
-        a.commitAll(author, "a")
-        a.syncNow()
-        tick()
-        b.write("note.md", "from b")
-        b.commitAll(author, "b")
         val result = b.syncNow()
 
+        assertEquals(listOf(pending("note.md", "from b", "from a")), result.pending)
+        assertFalse(result.pushed || result.pulled)
+        // The folder stays as it was while the user decides: no conflict markers, no merge under way.
         assertEquals("from b", b.read("note.md"))
-        val conflict = result.conflicts.single()
-        assertEquals(Side.LOCAL, conflict.kept)
-        assertEquals("from a", String(b.readBlob(conflict.otherBlob!!)))
-        assertEquals(listOf(conflict), b.conflicts())
-        assertTrue(result.pushed)
+        assertEquals("SAFE", b.state())
+        assertFalse(syncMarker(b).exists())
+        assertEquals("from a", cloudNote())
+        assertTrue(b.hasUnsyncedWork())
+    }
 
+    @Test
+    fun choosingTheLocalVersionKeepsItAndTheCloudVersionStaysInHistory() {
+        val (a, b) = divergedNote()
+        assertEquals(1, b.syncNow().pending.size)
+
+        val result = b.syncNow(choices = mapOf("note.md" to Side.LOCAL))
+
+        assertTrue(result.pending.isEmpty())
+        assertEquals(1, result.resolved)
+        assertTrue(result.pushed)
+        assertEquals("from b", b.read("note.md"))
         a.syncNow()
         assertEquals("from b", a.read("note.md"))
+        assertTrue("the version that lost must stay in history", a.historyHas("note.md", "from a"))
+        assertTrue(b.log().first().startsWith("同步：合并云端修改（1 个文件两边都改了"))
     }
 
     @Test
-    fun sameLineEditedOnBothSidesKeepsNewerCloudVersionAndCanSwitchBack() {
+    fun choosingTheCloudVersionTakesItAndTheLocalVersionStaysInHistory() {
+        val (a, b) = divergedNote()
+
+        val result = b.syncNow(choices = mapOf("note.md" to Side.REMOTE))
+
+        assertTrue(result.pending.isEmpty() && result.pushed)
+        assertEquals("from a", b.read("note.md"))
+        assertTrue("the version that lost must stay in history", b.historyHas("note.md", "from b"))
+        a.syncNow()
+        assertEquals("from a", a.read("note.md"))
+    }
+
+    @Test
+    fun cancellingLeavesTheQuestionForTheNextSync() {
+        val (_, b) = divergedNote()
+
+        assertEquals(1, b.syncNow().pending.size)
+        // The user cancelled: nothing was kept from that attempt, so the next sync asks again.
+        val again = b.syncNow()
+
+        assertEquals(listOf("note.md"), again.pending.map { it.path })
+        assertEquals("from a", cloudNote())
+        assertEquals("from b", b.read("note.md"))
+    }
+
+    @Test
+    fun onlyTheFilesBothSidesChangedAreAsked() {
+        val a = device("a")
+        a.write("note.md", "base")
+        a.write("mine.md", "m0")
+        a.write("theirs.md", "t0")
+        a.syncNow()
+        val b = device("b")
+        a.write("note.md", "from a")
+        a.write("theirs.md", "t1")
+        a.syncNow()
+        b.write("note.md", "from b")
+        b.write("mine.md", "m1")
+
+        assertEquals(listOf("note.md"), b.syncNow().pending.map { it.path })
+
+        val done = b.syncNow(choices = mapOf("note.md" to Side.REMOTE, "unrelated.md" to Side.LOCAL))
+        assertTrue(done.pending.isEmpty())
+        assertEquals("from a", b.read("note.md"))
+        assertEquals("m1", b.read("mine.md"))
+        assertEquals("t1", b.read("theirs.md"))
+    }
+
+    @Test
+    fun deletedOnOneSideAndEditedOnTheOtherAsksAndHonorsEitherChoice() {
+        for (keepEdit in listOf(true, false)) {
+            // One file name per round, so the rounds can share the cloud.
+            val name = "note-$keepEdit.md"
+            val a = device("a-$keepEdit")
+            a.write(name, "base")
+            a.syncNow()
+            val b = device("b-$keepEdit")
+            File(a.workTree, name).delete()
+            a.syncNow()
+            b.write(name, "edited")
+
+            assertEquals(listOf(pending(name, "edited", null)), b.syncNow().pending)
+
+            b.syncNow(choices = mapOf(name to if (keepEdit) Side.LOCAL else Side.REMOTE))
+            a.syncNow()
+            assertEquals(keepEdit, File(b.workTree, name).exists())
+            assertEquals(keepEdit, File(a.workTree, name).exists())
+            assertTrue("the edit must stay in history either way", b.historyHas(name, "edited"))
+        }
+    }
+
+    @Test
+    fun deletedLocallyAndEditedInTheCloudReportsTheDeletion() {
         val a = device("a")
         a.write("note.md", "base")
         a.syncNow()
         val b = device("b")
-
-        b.write("note.md", "older from b")
-        b.commitAll(author, "b")
-        tick()
-        a.write("note.md", "newer from a")
-        a.commitAll(author, "a")
+        a.write("note.md", "edited in the cloud")
         a.syncNow()
-        val conflict = b.syncNow().conflicts.single()
+        File(b.workTree, "note.md").delete()
 
-        assertEquals(Side.REMOTE, conflict.kept)
-        assertEquals("newer from a", b.read("note.md"))
+        assertEquals(listOf(pending("note.md", null, "edited in the cloud")), b.syncNow().pending)
 
-        b.useOtherVersion(conflict, author, "b")
-        assertEquals("older from b", b.read("note.md"))
-        assertTrue(b.conflicts().isEmpty())
-        b.syncNow()
-        a.syncNow()
-        assertEquals("older from b", a.read("note.md"))
+        b.syncNow(choices = mapOf("note.md" to Side.LOCAL))
+        assertFalse(File(b.workTree, "note.md").exists())
     }
 
     @Test
-    fun editWinsOverDeleteOnTheOtherSide() {
+    fun removesConflictRecordsOfEarlierVersions() {
         val a = device("a")
-        a.write("note.md", "base")
-        a.syncNow()
-        val b = device("b")
+        val legacy = File(a.workTree, ".git/jitnote/conflicts.json").apply {
+            parentFile?.mkdirs()
+            writeText("[]")
+        }
+        a.write("note.md", "x")
 
-        File(a.workTree, "note.md").delete()
         a.syncNow()
-        b.write("note.md", "edited")
-        val result = b.syncNow()
 
-        assertEquals("edited", b.read("note.md"))
-        assertNull(result.conflicts.single().otherBlob)
-        a.syncNow()
-        assertEquals("edited", a.read("note.md"))
+        assertFalse(legacy.exists())
     }
 
     @Test
@@ -347,10 +437,13 @@ class NotebookGitTest {
             writeText("")
         }
 
-        b.syncNow()
-        Git.open(b.workTree).use { assertEquals("SAFE", it.repository.repositoryState.name) }
-        assertFalse(b.hasUnsyncedWork())
+        // The merge is aborted. The two edits really do clash, so the sync then asks about them.
+        assertEquals(listOf("note.md"), b.syncNow().pending.map { it.path })
+        assertEquals("SAFE", b.state())
         assertFalse(syncMarker(b).exists())
+
+        b.syncNow(choices = mapOf("note.md" to Side.LOCAL))
+        assertFalse(b.hasUnsyncedWork())
     }
 
     @Test

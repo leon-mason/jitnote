@@ -555,7 +555,8 @@ final class NotebookGit: @unchecked Sendable {
     }
 
     /// Commits on [from] (not reachable from [hiding]) whose [path] differs from every parent, newest first.
-    /// Like `git log -- path` without history simplification, which is what JGit does on Android.
+    /// Like `git log -- path` without history simplification, so the side of a merge that lost a conflict
+    /// still shows up. Android's `history` walks the same way.
     private func commits(_ repo: OpaquePointer, from: git_oid, hiding: git_oid?, touching path: String, max: Int) throws -> [CommitInfo] {
         var walk: OpaquePointer?
         try Git2.check(git_revwalk_new(&walk, repo))

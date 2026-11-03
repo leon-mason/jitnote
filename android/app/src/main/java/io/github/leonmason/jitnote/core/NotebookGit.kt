@@ -1,7 +1,5 @@
 package io.github.leonmason.jitnote.core
 
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.MergeCommand
 import org.eclipse.jgit.api.MergeResult
@@ -14,8 +12,11 @@ import org.eclipse.jgit.lib.PersonIdent
 import org.eclipse.jgit.lib.ProgressMonitor
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.lib.RepositoryState
+import org.eclipse.jgit.merge.MergeStrategy
+import org.eclipse.jgit.merge.ResolveMerger
+import org.eclipse.jgit.revwalk.RevCommit
+import org.eclipse.jgit.revwalk.RevSort
 import org.eclipse.jgit.revwalk.RevWalk
-import org.eclipse.jgit.revwalk.filter.RevFilter
 import org.eclipse.jgit.transport.CredentialsProvider
 import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.RemoteRefUpdate
@@ -34,10 +35,9 @@ import java.net.UnknownHostException
  *
  * Sync rules:
  * - commit local changes → fetch → merge (never rebase) → push; never force-push.
- * - a file changed on both sides keeps the version whose last change is newer
- *   (ties go to the cloud); the other version stays in history and is recorded as a
- *   [ConflictRecord] so the user can switch to it.
- * - a file deleted on one side and changed on the other is kept.
+ * - a file changed on both sides (or deleted on one and changed on the other) is never decided by
+ *   the app: [sync] stops, before touching anything, and reports the file as a [PendingConflict];
+ *   the caller asks the user and syncs again with the choices. The side that loses stays in history.
  * - another program's `index.lock` or unfinished merge is never cleaned up (see [prepareForSync]).
  *
  * Not thread-safe: callers serialize access per notebook.
@@ -61,18 +61,33 @@ class NotebookGit(val workTree: File) {
         commitAllInternal(git, author, device, message)
     }
 
-    fun sync(credentials: Credentials?, author: Author, device: String): SyncResult =
+    /** [choices] settles conflicts a previous call reported in [SyncResult.pending]: which side wins, by path. */
+    fun sync(credentials: Credentials?, author: Author, device: String, choices: Map<String, Side> = emptyMap()): SyncResult =
         try {
-            withGit { git -> syncInternal(git, credentials?.toProvider(), author, device) }
+            withGit { git -> syncInternal(git, credentials?.toProvider(), author, device, choices) }
         } catch (e: Exception) {
             throw classify(e)
         }
 
-    /** Versions of [path], newest first. */
+    /**
+     * Versions of [path], newest first: every commit whose [path] differs from all of its parents.
+     * Not `git log -- path`: that drops the side of a merge that the merged file is identical to, which
+     * would hide exactly the version the user chose not to keep (design.md, "同步规则" step 4).
+     */
     fun history(path: String, max: Int = 200): List<Version> = withGit { git ->
-        if (git.repository.resolve(Constants.HEAD) == null) return@withGit emptyList()
-        git.log().addPath(path).setMaxCount(max).call().map {
-            Version(it.name, it.authorIdent.`when`.time, it.shortMessage, it.authorIdent.name)
+        val repo = git.repository
+        val head = repo.resolve(Constants.HEAD) ?: return@withGit emptyList()
+        RevWalk(repo).use { walk ->
+            walk.sort(RevSort.TOPO)
+            walk.sort(RevSort.COMMIT_TIME_DESC, true)
+            walk.markStart(walk.parseCommit(head))
+            val versions = mutableListOf<Version>()
+            for (commit in walk) {
+                if (versions.size >= max) break
+                if (!touches(repo, walk, commit, path)) continue
+                versions += Version(commit.name, commit.authorIdent.`when`.time, commit.shortMessage, commit.authorIdent.name)
+            }
+            versions
         }
     }
 
@@ -103,43 +118,33 @@ class NotebookGit(val workTree: File) {
             commitPathsInternal(git, paths, author, device, message)
         }
 
-    fun conflicts(): List<ConflictRecord> {
-        val file = conflictFile()
-        if (!file.exists()) return emptyList()
-        return runCatching { json.decodeFromString<List<ConflictRecord>>(file.readText()) }.getOrDefault(emptyList())
-    }
-
-    fun dismissConflict(path: String) = saveConflicts(conflicts().filterNot { it.path == path })
-
-    /** Replaces the kept version of a conflicted file with the one that was set aside. */
-    fun useOtherVersion(record: ConflictRecord, author: Author, device: String) {
-        withGit { git ->
-            writeOrDelete(record.path, record.otherBlob?.let { git.repository.open(ObjectId.fromString(it)).bytes })
-            applyIdentity(git.repository, author)
-            commitAllInternal(git, author, device, "改用另一个版本：${title(record.path)}")
-        }
-        dismissConflict(record.path)
-    }
-
     // ---------------------------------------------------------------- sync internals
 
-    private fun syncInternal(git: Git, provider: CredentialsProvider?, author: Author, device: String): SyncResult {
+    private fun syncInternal(
+        git: Git,
+        provider: CredentialsProvider?,
+        author: Author,
+        device: String,
+        choices: Map<String, Side>,
+    ): SyncResult {
         prepareForSync(git)
         try {
-            return runSync(git, provider, author, device)
+            return runSync(git, provider, author, device, choices)
         } finally {
             // Keep the marker when a failed sync left a merge behind, so the next sync still recognizes it as ours.
             if (git.repository.repositoryState == RepositoryState.SAFE) syncMarker().delete()
         }
     }
 
-    private fun runSync(git: Git, provider: CredentialsProvider?, author: Author, device: String): SyncResult {
+    private fun runSync(git: Git, provider: CredentialsProvider?, author: Author, device: String, choices: Map<String, Side>): SyncResult {
         val repo = git.repository
         applyIdentity(repo, author)
+        // Records of earlier versions, which kept the newer side and let people switch afterwards. Unused now.
+        File(workTree, LEGACY_CONFLICT_FILE).delete()
         commitAllInternal(git, author, device, null)
         val branch = repo.branch
         var pulled = false
-        val conflicts = mutableListOf<ConflictRecord>()
+        var resolved = 0
         repeat(MAX_ATTEMPTS) {
             git.fetch()
                 .setRemote(REMOTE)
@@ -149,24 +154,26 @@ class NotebookGit(val workTree: File) {
                 .call()
             val remote = repo.exactRef(remoteRef(branch))?.objectId
             if (remote != null) {
-                val merge = mergeRemote(git, remote, author, device)
+                val merge = mergeRemote(git, remote, author, device, choices)
+                // Stop before touching anything: the working tree is left as it was while the user decides.
+                if (merge.pending.isNotEmpty()) return SyncResult(pulled, false, resolved, merge.pending)
                 pulled = pulled || merge.changed
-                conflicts += merge.conflicts
+                resolved += merge.resolved
             }
             val local = repo.resolve(Constants.HEAD)
-            if (local == null || local == remote) return SyncResult(pulled, false, conflicts)
+            if (local == null || local == remote) return SyncResult(pulled, false, resolved, emptyList())
             if (push(git, branch, provider)) {
                 ensureUpstream(repo, branch)
-                return SyncResult(pulled, true, conflicts)
+                return SyncResult(pulled, true, resolved, emptyList())
             }
             // Someone pushed between our fetch and push: fetch and merge again.
         }
         throw SyncException(SyncException.Kind.REJECTED, "云端在同步期间不断变化，请稍后再试")
     }
 
-    private class MergeOutcome(val changed: Boolean, val conflicts: List<ConflictRecord>)
+    private class MergeOutcome(val changed: Boolean, val resolved: Int, val pending: List<PendingConflict>)
 
-    private fun mergeRemote(git: Git, theirs: ObjectId, author: Author, device: String): MergeOutcome {
+    private fun mergeRemote(git: Git, theirs: ObjectId, author: Author, device: String, choices: Map<String, Side>): MergeOutcome {
         val repo = git.repository
         val head = repo.resolve(Constants.HEAD)
         if (head == null) {
@@ -175,9 +182,16 @@ class NotebookGit(val workTree: File) {
             update.setNewObjectId(theirs)
             update.update()
             git.reset().setMode(ResetCommand.ResetType.HARD).call()
-            return MergeOutcome(true, emptyList())
+            return MergeOutcome(true, 0, emptyList())
         }
-        if (isAncestor(repo, theirs, head)) return MergeOutcome(false, emptyList())
+        if (isAncestor(repo, theirs, head)) return MergeOutcome(false, 0, emptyList())
+
+        // Find out first, in memory, whether both sides touched the same thing. Merging for real would
+        // write conflict markers into the notebook folder, where another program could read them.
+        if (!isAncestor(repo, head, theirs)) {
+            val conflicts = findConflicts(repo, head, theirs)
+            if (conflicts.any { it.path !in choices }) return MergeOutcome(false, 0, conflicts)
+        }
 
         val result = git.merge()
             .include(theirs)
@@ -187,22 +201,38 @@ class NotebookGit(val workTree: File) {
             .call()
         return when {
             result.mergeStatus == MergeResult.MergeStatus.CONFLICTING ->
-                MergeOutcome(true, resolveConflicts(git, head, theirs, author, device))
-            result.mergeStatus.isSuccessful -> MergeOutcome(true, emptyList())
+                MergeOutcome(true, resolveConflicts(git, head, theirs, author, device, choices), emptyList())
+            result.mergeStatus.isSuccessful -> MergeOutcome(true, 0, emptyList())
             // Typically a file was written while syncing; JGit left the working tree untouched.
             else -> throw SyncException(SyncException.Kind.OTHER, "有文件正在被修改，请稍后再同步（${result.mergeStatus}）")
         }
     }
 
+    /**
+     * The files [ours] and [theirs] cannot be merged on their own, with what each side has.
+     * Nothing in the repository or the working tree changes (the merge is done in memory).
+     */
+    private fun findConflicts(repo: Repository, ours: ObjectId, theirs: ObjectId): List<PendingConflict> {
+        val merger = MergeStrategy.RECURSIVE.newMerger(repo, true) as ResolveMerger
+        if (merger.merge(ours, theirs)) return emptyList()
+        return merger.unmergedPaths.sorted().map { path ->
+            PendingConflict(path, readAt(repo, ours.name, path), readAt(repo, theirs.name, path))
+        }
+    }
+
+    /**
+     * Settles every conflicted file in the half-finished merge with the side the user chose, then
+     * commits it. Both sides are parents of that commit, so the side that lost is still in history.
+     */
     private fun resolveConflicts(
         git: Git,
         ours: ObjectId,
         theirs: ObjectId,
         author: Author,
         device: String,
-    ): List<ConflictRecord> {
+        choices: Map<String, Side>,
+    ): Int {
         val repo = git.repository
-        val base = mergeBase(repo, ours, theirs)
 
         // Stage 2 = this device, stage 3 = cloud. A missing stage means that side deleted the file.
         val stages = linkedMapOf<String, Array<ObjectId?>>()
@@ -212,51 +242,27 @@ class NotebookGit(val workTree: File) {
             if (entry.stage > 0) stages.getOrPut(entry.pathString) { arrayOfNulls(4) }[entry.stage] = entry.objectId
         }
 
-        val now = System.currentTimeMillis()
-        val records = mutableListOf<ConflictRecord>()
         for ((path, stage) in stages) {
-            val oursBlob = stage[2]
-            val theirsBlob = stage[3]
-            if (oursBlob == null && theirsBlob == null) continue
-            val oursTime = lastChange(git, ours, base, path)
-            val theirsTime = lastChange(git, theirs, base, path)
-            val keepLocal = when {
-                oursBlob == null -> false
-                theirsBlob == null -> true
-                else -> oursTime > theirsTime
+            // findConflicts saw this merge first, so a path without a choice means the two disagree. Do not guess.
+            val side = choices[path] ?: throw SyncException(SyncException.Kind.OTHER, "合并时发现新的冲突，请重新同步")
+            val chosen = if (side == Side.LOCAL) stage[2] else stage[3]
+            if (chosen != null) {
+                writeOrDelete(path, repo.open(chosen).bytes)
+                git.add().addFilepattern(path).call()
+            } else {
+                // The chosen side deleted the file.
+                writeOrDelete(path, null)
+                git.rm().addFilepattern(path).call()
             }
-            val kept = if (keepLocal) oursBlob else theirsBlob
-            writeOrDelete(path, repo.open(kept!!).bytes)
-            records += ConflictRecord(
-                path = path,
-                kept = if (keepLocal) Side.LOCAL else Side.REMOTE,
-                keptTime = if (keepLocal) oursTime else theirsTime,
-                otherTime = if (keepLocal) theirsTime else oursTime,
-                otherBlob = (if (keepLocal) theirsBlob else oursBlob)?.name,
-                otherCommit = (if (keepLocal) theirs else ours).name,
-                createdAt = now,
-            )
         }
 
-        val add = git.add()
-        stages.keys.forEach { add.addFilepattern(it) }
-        add.call()
         val ident = PersonIdent(author.name, author.email)
         git.commit()
-            .setMessage(commitMessage("同步：合并云端修改（${records.size} 个文件两边都改了，已采用较新版本）", device))
+            .setMessage(commitMessage("同步：合并云端修改（${stages.size} 个文件两边都改了，按你的选择处理）", device))
             .setAuthor(ident)
             .setCommitter(ident)
             .call()
-
-        saveConflicts(conflicts().filterNot { old -> records.any { it.path == old.path } } + records)
-        return records
-    }
-
-    /** Author time (ms) of the newest commit on [tip] that touched [path] after [base]; 0 if none. */
-    private fun lastChange(git: Git, tip: ObjectId, base: ObjectId?, path: String): Long {
-        val log = git.log().add(tip).addPath(path).setMaxCount(1)
-        if (base != null) log.not(base)
-        return log.call().firstOrNull()?.authorIdent?.`when`?.time ?: 0L
+        return stages.size
     }
 
     private fun push(git: Git, branch: String, provider: CredentialsProvider?): Boolean {
@@ -368,26 +374,15 @@ class NotebookGit(val workTree: File) {
         }
     }
 
-    private fun conflictFile() = File(workTree, ".git/jitnote/conflicts.json")
-
     private fun syncMarker() = File(workTree, ".git/$SYNC_MARKER")
-
-    private fun saveConflicts(list: List<ConflictRecord>) {
-        val file = conflictFile()
-        if (list.isEmpty()) {
-            file.delete()
-            return
-        }
-        file.parentFile?.mkdirs()
-        file.writeText(json.encodeToString(list))
-    }
 
     companion object {
         const val REMOTE = "origin"
         const val DEFAULT_BRANCH = "main"
         private const val TIMEOUT_SECONDS = 60
         private const val MAX_ATTEMPTS = 3
-        private val json = Json { ignoreUnknownKeys = true }
+
+        private const val LEGACY_CONFLICT_FILE = ".git/jitnote/conflicts.json"
 
         /**
          * Written to `.git/jitnote/` while a sync runs. A leftover one means a sync of this app died, which is
@@ -469,13 +464,14 @@ class NotebookGit(val workTree: File) {
         private fun isAncestor(repo: Repository, ancestor: ObjectId, of: ObjectId): Boolean =
             RevWalk(repo).use { it.isMergedInto(it.parseCommit(ancestor), it.parseCommit(of)) }
 
-        private fun mergeBase(repo: Repository, a: ObjectId, b: ObjectId): ObjectId? =
-            RevWalk(repo).use { walk ->
-                walk.revFilter = RevFilter.MERGE_BASE
-                walk.markStart(walk.parseCommit(a))
-                walk.markStart(walk.parseCommit(b))
-                walk.next()?.copy()
-            }
+        private fun blobAt(repo: Repository, commit: RevCommit, path: String): ObjectId? =
+            TreeWalk.forPath(repo, path, commit.tree)?.use { it.getObjectId(0) }
+
+        private fun touches(repo: Repository, walk: RevWalk, commit: RevCommit, path: String): Boolean {
+            val mine = blobAt(repo, commit, path)
+            if (commit.parentCount == 0) return mine != null
+            return commit.parents.none { parent -> blobAt(repo, walk.parseCommit(parent), path) == mine }
+        }
 
         private fun readAt(repo: Repository, commit: String, path: String): ByteArray? =
             RevWalk(repo).use { walk ->

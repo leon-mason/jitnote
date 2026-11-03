@@ -28,7 +28,6 @@ sealed interface Screen {
     data class Editor(val notebookId: String, val path: String, val startEditing: Boolean = false) : Screen
     data class History(val notebookId: String, val path: String) : Screen
     data class VersionPreview(val notebookId: String, val path: String, val version: Version) : Screen
-    data class Conflicts(val notebookId: String) : Screen
     data class Image(val notebookId: String, val path: String) : Screen
 
     /** A file this app cannot show itself; the phone's default app may open it. */
@@ -46,9 +45,6 @@ class Navigator : ViewModel() {
     val highlighted = mutableStateMapOf<String, String>()
     val trees = mutableStateMapOf<String, List<NoteIndex.Entry>>()
     val treeScroll = mutableMapOf<String, LazyListState>()
-
-    /** The last known number of unresolved conflicts per notebook, so the home card shows at once on return. */
-    val conflictCounts = mutableStateMapOf<String, Int>()
 
     /** The mode the user switched an open note to; absent means the default. Cleared on returning to the file tree. */
     val editorMode = mutableStateMapOf<Screen.Editor, ViewMode>()
@@ -81,6 +77,7 @@ fun JitnoteUi(notebooks: Notebooks, updates: AppUpdates, nav: Navigator = viewMo
     // must keep across a push lives in the Navigator instead.
     key(nav.stack.size, screen) { ScreenContent(notebooks, updates, nav, screen) }
     UpdateDialog(updates)
+    SyncConflictsDialog(notebooks)
 }
 
 @Composable
@@ -95,7 +92,6 @@ private fun ScreenContent(notebooks: Notebooks, updates: AppUpdates, nav: Naviga
         is Screen.Editor -> EditorScreen(notebooks, nav, screen)
         is Screen.History -> HistoryScreen(notebooks, nav, screen)
         is Screen.VersionPreview -> VersionPreviewScreen(notebooks, nav, screen)
-        is Screen.Conflicts -> ConflictsScreen(notebooks, nav, screen)
         is Screen.Image -> ImageViewerScreen(notebooks, nav, screen)
         is Screen.ExternalFile -> ExternalFileScreen(notebooks, nav, screen)
     }

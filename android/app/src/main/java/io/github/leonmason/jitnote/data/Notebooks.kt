@@ -3,7 +3,8 @@ package io.github.leonmason.jitnote.data
 import android.os.Build
 import io.github.leonmason.jitnote.BuildConfig
 import io.github.leonmason.jitnote.core.Author
-import io.github.leonmason.jitnote.core.ConflictRecord
+import io.github.leonmason.jitnote.core.PendingConflict
+import io.github.leonmason.jitnote.core.Side
 import io.github.leonmason.jitnote.core.Credentials
 import io.github.leonmason.jitnote.core.NotebookGit
 import io.github.leonmason.jitnote.core.SyncException
@@ -42,6 +43,19 @@ class Notebooks(
     private val vault: TokenVault,
 ) {
     val state: StateFlow<AppState> get() = store.state
+
+    /** Files that both this device and the cloud changed, waiting for a choice before the sync goes on. */
+    class PendingSync(
+        val notebook: Notebook,
+        val conflicts: List<PendingConflict>,
+        /** Choices made in an earlier round that still apply (the cloud moved on while the user decided). */
+        val choices: Map<String, Side>,
+    )
+
+    private val _pendingSync = MutableStateFlow<PendingSync?>(null)
+
+    /** A sync that stopped to ask which side wins; the UI shows the question until it is answered. */
+    val pendingSync: StateFlow<PendingSync?> = _pendingSync.asStateFlow()
 
     /** Outlives screens, so a sync keeps going when the user navigates away. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -245,41 +259,53 @@ class Notebooks(
         scope.launch { sync(notebook) }
     }
 
-    private suspend fun sync(notebook: Notebook) {
+    /** Goes on with a sync that asked a question, using the user's answers. */
+    fun continueSync(choices: Map<String, Side>) {
+        val pending = _pendingSync.value ?: return
+        if (isSyncing(pending.notebook.id)) return
+        _pendingSync.value = null
+        scope.launch { sync(pending.notebook, choices) }
+    }
+
+    /** The user would rather not decide now. Nothing was merged or uploaded; the next sync asks again. */
+    fun cancelPendingSync() {
+        val pending = _pendingSync.value ?: return
+        _pendingSync.value = null
+        val message = "已取消同步。两边的修改都还在，下次同步时再选择。"
+        _syncStates.update { it + (pending.notebook.id to SyncState.Finished(++syncSeq, false, message, 0)) }
+    }
+
+    private suspend fun sync(notebook: Notebook, choices: Map<String, Side> = emptyMap()) {
         _syncStates.update { it + (notebook.id to SyncState.Running) }
         val finished = try {
             val account = account(notebook.accountId) ?: throw SyncException(SyncException.Kind.AUTH, "这个笔记本用的云端账号已断开，请重新连接")
-            val result = withLock(notebook) { git(notebook).sync(credentials(account), author(account), device) }
-            updateNotebook(notebook.id) { it.copy(lastSyncAt = System.currentTimeMillis(), lastSyncError = null) }
-            SyncState.Finished(++syncSeq, true, describe(result), result.conflicts.size)
+            val result = withLock(notebook) { git(notebook).sync(credentials(account), author(account), device, choices) }
+            if (result.pending.isNotEmpty()) {
+                // Not finished: no "synced" time and no message, just the question.
+                _pendingSync.value = PendingSync(notebook, result.pending, choices.filterKeys { k -> result.pending.any { it.path == k } })
+                null
+            } else {
+                updateNotebook(notebook.id) { it.copy(lastSyncAt = System.currentTimeMillis(), lastSyncError = null) }
+                SyncState.Finished(++syncSeq, true, describe(result), result.resolved)
+            }
         } catch (e: Exception) {
             val message = (e as? SyncException)?.message ?: NotebookGit.classify(e).message ?: "同步失败"
             updateNotebook(notebook.id) { it.copy(lastSyncError = message) }
             SyncState.Finished(++syncSeq, false, message, 0)
         }
-        _syncStates.update { it + (notebook.id to finished) }
+        _syncStates.update { if (finished != null) it + (notebook.id to finished) else it - notebook.id }
         refreshUnsynced(notebook)
     }
 
     private fun describe(result: SyncResult): String = when {
-        result.conflicts.isNotEmpty() -> "已同步。${result.conflicts.size} 个文件两边都改了，已采用较新版本"
+        result.resolved > 0 -> "已同步。${result.resolved} 个文件两边都改了，已按你的选择处理"
         result.pulled && result.pushed -> "已同步：收到云端修改，并上传了本机修改"
         result.pulled -> "已同步：收到云端修改"
         result.pushed -> "已同步：已上传本机修改"
         else -> "已是最新"
     }
 
-    // ------------------------------------------------------------------ conflicts
-
-    suspend fun conflicts(notebook: Notebook): List<ConflictRecord> = withLock(notebook) { git(notebook).conflicts() }
-
-    suspend fun useOtherVersion(notebook: Notebook, record: ConflictRecord) {
-        val account = account(notebook.accountId) ?: return
-        withLock(notebook) { git(notebook).useOtherVersion(record, author(account), device) }
-    }
-
-    suspend fun dismissConflict(notebook: Notebook, record: ConflictRecord) =
-        withLock(notebook) { git(notebook).dismissConflict(record.path) }
+    // ------------------------------------------------------------------ history
 
     suspend fun restore(notebook: Notebook, path: String, commit: String) {
         val account = account(notebook.accountId) ?: return
