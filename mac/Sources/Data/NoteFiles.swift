@@ -94,6 +94,85 @@ enum NoteIndex {
         return String(full.dropFirst(base.count + 1)).precomposedStringWithCanonicalMapping
     }
 
+    /// The file a reference opens, relative to [root], or nil if [url] is an ordinary file.
+    ///
+    /// Notebooks shared with other tools contain two kinds of reference, and neither is the document itself:
+    /// an index is a symlink whose text starts with `@` (`CLAUDE.md` → `@AGENTS.md` means the file AGENTS.md,
+    /// not a file named `@AGENTS.md`); a shortcut is a symlink or a Finder alias that points straight at a file.
+    /// The result stays inside the notebook. A cycle or a target outside the notebook resolves to nothing.
+    static func resolveReference(at url: URL, in root: URL) -> String? {
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        var current = url.standardizedFileURL
+        var followed = false
+        var seen = Set<String>()
+        for _ in 0..<8 {
+            if !seen.insert(current.path).inserted { return nil }
+            if let destination = symbolicTarget(current) {
+                followed = true
+                guard let next = linkURL(destination, relativeTo: current) else { return nil }
+                current = next.standardizedFileURL
+                continue
+            }
+            if let alias = aliasTarget(current) {
+                followed = true
+                current = alias.standardizedFileURL
+                continue
+            }
+            return followed ? fileInsideNotebook(current, rootPath: rootPath) : nil
+        }
+        return nil
+    }
+
+    /// When the references directly inside [folder] ("" is the notebook root) all point at one file, that file.
+    /// Several references that disagree stay closed, so the right pane is not guessed.
+    static func referenceTarget(inFolder folder: String, root: URL, showHidden: Bool) -> String? {
+        let dir = folder.isEmpty ? root : root.appendingPathComponent(folder)
+        guard isDirectory(dir) else { return nil }
+        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey, .isAliasFileKey]
+        let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: Array(keys))) ?? []
+        var targets = Set<String>()
+        for item in items where !isHidden(item.lastPathComponent, showHidden: showHidden) {
+            let values = try? item.resourceValues(forKeys: keys)
+            guard values?.isSymbolicLink == true || values?.isAliasFile == true else { continue }
+            if let target = resolveReference(at: item, in: root) { targets.insert(target) }
+        }
+        return targets.count == 1 ? targets.first : nil
+    }
+
+    private static func symbolicTarget(_ url: URL) -> String? {
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true else { return nil }
+        return try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+    }
+
+    /// A Finder alias, not a symlink (a symlink also reports itself as an alias file).
+    private static func aliasTarget(_ url: URL) -> URL? {
+        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isAliasFileKey])
+        guard values?.isSymbolicLink != true, values?.isAliasFile == true else { return nil }
+        return try? URL(resolvingAliasFileAt: url, options: [.withoutMounting])
+    }
+
+    /// `@AGENTS.md` is an index; `AGENTS.md` or `../AGENTS.md` is a shortcut. Both are relative to the link.
+    private static func linkURL(_ destination: String, relativeTo link: URL) -> URL? {
+        var raw = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("@") { raw.removeFirst() }
+        raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while raw.hasPrefix("./") { raw.removeFirst(2) }
+        if raw.isEmpty || raw.contains("://") || raw.contains("\0") { return nil }
+        if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
+        return link.deletingLastPathComponent().appendingPathComponent(raw)
+    }
+
+    private static func fileInsideNotebook(_ url: URL, rootPath: String) -> String? {
+        let standardized = url.standardizedFileURL
+        let full = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
+            .appendingPathComponent(standardized.lastPathComponent).path
+        guard full.hasPrefix(rootPath + "/") else { return nil }
+        if full == rootPath + "/.git" || full.hasPrefix(rootPath + "/.git/") { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { return nil }
+        return String(full.dropFirst(rootPath.count + 1)).precomposedStringWithCanonicalMapping
+    }
+
     static func modified(_ url: URL) -> Int64 {
         let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         return Int64(date.timeIntervalSince1970 * 1000)
