@@ -118,6 +118,9 @@ function setReadonly(readonly) {
 async function load(markdown, options = {}) {
   wantReadonly = Boolean(options.readonly)
   created = false
+  // A report still waiting belongs to the text being replaced. Sent later it would carry the new
+  // text (as the editor re-serializes it) and make the host rewrite a file nobody edited.
+  clearTimeout(changeTimer)
   // Not a <base> tag: that would also re-resolve the editor's own stylesheet.
   images.configure(options)
   const [front, body] = splitFrontMatter(markdown ?? '')

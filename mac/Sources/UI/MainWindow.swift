@@ -184,6 +184,7 @@ struct NotebookView: View {
             HistoryView(notebook: notebook, path: item.path) { historyPath = nil }
         }
         .modifier(SyncQuestionSheet())
+        .modifier(FolderChanges(folder: root, onChange: externalChange))
         .sheet(item: Binding(get: { image.map { PathItem(path: $0.path) } }, set: { image = $0.map { URL(fileURLWithPath: $0.path) } })) { item in
             ImageViewer(file: URL(fileURLWithPath: item.path)) { image = nil }
         }
@@ -298,6 +299,35 @@ struct NotebookView: View {
         guard selection == selectionAtStart else { return }
         revealFolderReference(showHidden: showHidden)
     }
+
+    /// Something in the notebook folder changed on disk, made by another program (an AI, a terminal, Finder).
+    /// The file is the only truth: the tree follows it, and so does the note that is open.
+    private func externalChange(_ paths: [String]) {
+        // A sync writes many files; the screen is rebuilt when it ends.
+        guard !syncing else { return }
+        let showHidden = notebooks.state.showHiddenFiles
+        let shown = displayedPath.map(Self.normalized)
+        let open = shown.map { [$0] + FileTree.ancestors($0) } ?? []
+        let relevant = paths.map(Self.normalized).filter { path in
+            // The open note's own saves and its folder's bookkeeping change nothing in the tree.
+            if open.contains(path) { return false }
+            // Hidden names (.DS_Store, .obsidian, editors' swap files) are not in the tree unless asked for.
+            return showHidden || !path.split(separator: "/").contains { $0.hasPrefix(".") }
+        }
+        if !relevant.isEmpty { refresh += 1 }
+        if let shown, paths.map(Self.normalized).contains(shown) {
+            if FileManager.default.fileExists(atPath: root.appendingPathComponent(displayedPath ?? shown).path) {
+                Task { await bridge.reloadFromDisk() }
+            } else {
+                // Deleted or moved away: the pane falls back to its empty state.
+                refresh += 1
+            }
+        }
+        Task { await notebooks.refreshUnsynced(notebook) }
+    }
+
+    /// The same name can be spelled with composed or decomposed characters; the file system treats them as one.
+    private static func normalized(_ path: String) -> String { path.precomposedStringWithCanonicalMapping }
 
     /// The right pane is blank until a file is open. When the notebook root's references agree on
     /// one file, show that file instead. A later refresh leaves whatever the user already has open.

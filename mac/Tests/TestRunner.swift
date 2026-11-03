@@ -30,6 +30,8 @@ enum TestRunner {
     static func main() {
         let suites: [(String, [TestCase])] = [
             ("NotebookGit", NotebookGitTests.all),
+            ("NoteSaver", NoteSaverTests.all),
+            ("FolderWatcher", FolderWatcherTests.all),
             ("NoteIndex", NoteIndexTests.all),
             ("FileTree", FileTreeTests.all),
             ("NoteAssets", NoteAssetsTests.all),

@@ -4,40 +4,24 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-/// Writes a note back only after a real edit, and only when the text changed — so opening a note,
-/// reading it and leaving never modifies the file (same rule as Android's NoteSaver).
-final class NoteSaver {
-    private let file: URL
-    private var saved: String
-    private var edited = false
-
-    init(file: URL, loaded: String) {
-        self.file = file
-        saved = loaded
-    }
-
-    func markEdited() { edited = true }
-
-    @discardableResult
-    func save(_ text: String?) -> Bool {
-        guard edited, let text, text != saved else { return false }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? text.write(to: file, atomically: true, encoding: .utf8)
-        saved = text
-        return true
-    }
-}
-
 /// Lets the window save the open note before syncing or when the app goes to the background.
 @MainActor
 final class EditorBridge: ObservableObject {
     fileprivate weak var controller: EditorController?
     fileprivate var plainText: (() -> Void)?
+    fileprivate var plainReload: (() async -> Void)?
 
     /// Writes the open note's latest content to disk.
     func flush() async {
         plainText?()
         await controller?.flush()
+    }
+
+    /// Shows what another program wrote into the open note, if it did. The file is the only truth, so
+    /// the editor follows it, without asking.
+    func reloadFromDisk() async {
+        await controller?.reloadFromDisk()
+        await plainReload?()
     }
 }
 
@@ -65,8 +49,9 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
     /// Created after `init` registers this object as the scheme handler: WebKit copies the configuration.
     private(set) var webView: WKWebView!
     private let root: URL
+    private let path: String
     private let folder: String
-    private let content: String
+    private var content: String
     /// Preview shows the note read-only. Changes while the note is open, so `ready` reads the latest value.
     private(set) var readonly: Bool
     private let saver: NoteSaver
@@ -76,6 +61,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
 
     init(root: URL, path: String, content: String, readonly: Bool) {
         self.root = root
+        self.path = path
         folder = path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : ""
         self.content = content
         self.readonly = readonly
@@ -117,8 +103,35 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         if saver.save(markdown) { onSaved() }
     }
 
+    /// Brings the editor in line with the file after another program changed it. This app's own saves
+    /// are told apart by content (the file then holds exactly what was last saved), so they change nothing.
+    func reloadFromDisk() async {
+        let file = root.appendingPathComponent(path)
+        // A note that is gone is left alone: the window shows its own state for that, and nothing is written back.
+        guard let disk = await Task.detached(operation: { try? String(contentsOf: file, encoding: .utf8) }).value,
+              saver.changedOnDisk(disk) else { return }
+        saver.adopt(disk)
+        content = disk
+        // The editor drops a report it was about to send for the old text (editor/src/main.js, load).
+        _ = try? await webView.evaluateJavaScript("window.JitnoteEditor && window.JitnoteEditor.load(\(Self.json(disk)), \(optionsJson()))")
+    }
+
     func close() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "host")
+    }
+
+    private func optionsJson() -> String {
+        let options: [String: Any] = [
+            "readonly": readonly,
+            "baseUrl": notebookUrl(folder.isEmpty ? "" : folder + "/"),
+            "notebookUrl": notebookUrl(""),
+        ]
+        return String(data: try! JSONSerialization.data(withJSONObject: options), encoding: .utf8)!
+    }
+
+    /// [text] as a JSON string literal, ready to put in a script.
+    private static func json(_ text: String) -> String {
+        String(data: try! JSONSerialization.data(withJSONObject: [text]), encoding: .utf8)!.dropFirst().dropLast().description
     }
 
     // MARK: Messages from the editor
@@ -127,14 +140,7 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
         case "ready":
-            let options: [String: Any] = [
-                "readonly": readonly,
-                "baseUrl": notebookUrl(folder.isEmpty ? "" : folder + "/"),
-                "notebookUrl": notebookUrl(""),
-            ]
-            let optionsJson = String(data: try! JSONSerialization.data(withJSONObject: options), encoding: .utf8)!
-            let contentJson = String(data: try! JSONSerialization.data(withJSONObject: [content]), encoding: .utf8)!.dropFirst().dropLast()
-            webView.evaluateJavaScript("window.JitnoteEditor.load(\(contentJson), \(optionsJson))")
+            webView.evaluateJavaScript("window.JitnoteEditor.load(\(Self.json(content)), \(optionsJson()))")
         case "change":
             saver.markEdited()
             if saver.save(body["markdown"] as? String) { onSaved() }
@@ -258,6 +264,8 @@ struct PlainEditor: View {
     let onClose: () -> Void
 
     @State private var text = ""
+    /// What the file held when it was last read; `text` differing from it is what counts as an edit.
+    @State private var loaded = ""
     @State private var saver: NoteSaver?
 
     var body: some View {
@@ -267,11 +275,13 @@ struct PlainEditor: View {
             .padding(12)
             .onAppear {
                 text = initial
+                loaded = initial
                 saver = NoteSaver(file: file, loaded: initial)
                 bridge.plainText = { save() }
+                bridge.plainReload = { await reload() }
             }
             .onChange(of: text) { _, value in
-                if value != initial { saver?.markEdited() }
+                if value != loaded { saver?.markEdited() }
             }
             .task(id: text) {
                 try? await Task.sleep(for: .milliseconds(800))
@@ -280,12 +290,23 @@ struct PlainEditor: View {
             .onDisappear {
                 save()
                 bridge.plainText = nil
+                bridge.plainReload = nil
                 onClose()
             }
     }
 
     private func save() {
         if saver?.save(text) == true { onSaved() }
+    }
+
+    /// Follows the file after another program changed it (see `EditorBridge.reloadFromDisk`).
+    private func reload() async {
+        let file = file
+        guard let disk = await Task.detached(operation: { try? String(contentsOf: file, encoding: .utf8) }).value,
+              saver?.changedOnDisk(disk) == true else { return }
+        saver?.adopt(disk)
+        loaded = disk
+        text = disk
     }
 }
 

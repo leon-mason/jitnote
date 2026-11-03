@@ -203,6 +203,25 @@ struct SyncConflictsView: View {
     }
 }
 
+/// Watches the notebook folder while the window is open and reports what other programs change in it.
+struct FolderChanges: ViewModifier {
+    let folder: URL
+    let onChange: ([String]) -> Void
+    @State private var watcher: FolderWatcher?
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: folder) {
+                watcher?.stop()
+                watcher = FolderWatcher(folder: folder) { paths in MainActor.assumeIsolated { onChange(paths) } }
+            }
+            .onDisappear {
+                watcher?.stop()
+                watcher = nil
+            }
+    }
+}
+
 /// Shows the question a sync asks (`SyncConflictsView`) over the window it is attached to.
 struct SyncQuestionSheet: ViewModifier {
     @EnvironmentObject private var notebooks: Notebooks
