@@ -1,4 +1,5 @@
-# Pushing a tag like v0.2.0 builds the signed APK and the Mac app and publishes them as a GitHub Release.
+# Pushing a tag like v0.2.0 builds the signed APK, the Mac app and the Windows 11 package,
+# and publishes them as one GitHub Release. Already-released tags are not rebuilt for Windows.
 # The apps' update checks read the latest release, and show the tag message as the update notes.
 name: Release
 
@@ -70,3 +71,20 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           gh release upload "$GITHUB_REF_NAME" "mac/build/Jitnote-mac-apple-silicon-$version.dmg" "mac/build/Jitnote-mac-apple-silicon-$version.zip"
+
+  windows:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: scripts/build-windows.sh --test
+      - run: scripts/build-windows.sh
+      - name: Add the Windows app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" "windows/build/Jitnote-windows-x64-$version.zip"
