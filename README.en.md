@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | English
 
-Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private GitHub / Gitee repositories, on Android and on the Mac.
+Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private GitHub / Gitee repositories, on Android, on the Mac, and on Windows 11.
 
 - **Your data stays yours**: notes live only in your own repositories and devices; accounts, tokens and content never pass through a third party.
 - **No server**: there is no server of ours, and you don't need one either. Fully open source, no data collection.
@@ -14,7 +14,7 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 - **WYSIWYG**: you see an ordinary note (headings, bold, lists, to-dos, tables). What's saved is standard Markdown that Obsidian / Typora can open directly.
 - **Works with existing repositories**: use your Obsidian or Typora notes repository as-is. Existing files and image references are left untouched.
 
-> **Status**: early version. There is an Android client and a Mac client (the Mac one is new), and the UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
+> **Status**: early version. There is an Android client, a Mac client and a Windows 11 client. The UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
 
 ## Repository layout
 
@@ -22,6 +22,7 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 | --- | --- |
 | [`android/`](android/) | Android client (Kotlin + Jetpack Compose + [JGit](https://www.eclipse.org/jgit/)) |
 | [`mac/`](mac/) | Mac client (Swift + SwiftUI + [libgit2](https://libgit2.org/)) |
+| [`windows/`](windows/) | Windows 11 client (C# / .NET + Avalonia + [LibGit2Sharp](https://github.com/libgit2/libgit2sharp)) |
 | [`editor/`](editor/) | Note editor shared by all clients ([Milkdown](https://milkdown.dev/) Crepe, bundled as an offline web page embedded in the app) |
 | [`docs/`](docs/) | Design notes (in Chinese) |
 
@@ -39,7 +40,7 @@ Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Rel
 
 The home screen is the **file tree** of the current notebook: like Obsidian, it shows every file and folder with full names. Tap a folder to expand or collapse it (empty folders too) and a file to open it; the app remembers which folders are expanded. New notes and new folders are created at the highlighted location. Tap the notebook name at the top to switch notebooks or open "管理笔记本" (Manage notebooks). Whether a note opens for editing or in preview is set under "⋮ → 设置" (Settings), and you can switch at any time from the top bar once it is open; preview is read-only and never changes the file.
 
-Hidden files starting with "." (such as `.obsidian` and `.gitignore`) are not shown unless you turn on "显示隐藏文件" in "⋮ → 设置" (on the Mac: Settings → 通用). Git's own `.git` folder is never shown.
+Hidden files starting with "." (such as `.obsidian` and `.gitignore`) are not shown unless you turn on "显示隐藏文件" in "⋮ → 设置" (on the Mac: Settings → 通用; on Windows: 设置). Git's own `.git` folder is never shown.
 
 Deleting a notebook only removes the copy on the phone; the repository in the cloud is not affected.
 
@@ -49,7 +50,7 @@ When a new version is out, the app offers to update when you open it (it checks 
 
 - Required token permissions: for a Gitee personal token, keep the default selection (at least `user_info` and `projects`); for a GitHub classic token, select `repo`.
 - These permissions grant read/write access to **all** repositories in your account. Only use the token on your own phone, and delete it in your Gitee / GitHub settings whenever you no longer need it.
-- The token is encrypted with the Android Keystore and stored only on the phone, with system backup disabled. On the Mac it is kept in the local keychain.
+- The token is encrypted with the Android Keystore and stored only on the phone, with system backup disabled. On the Mac it is kept in the local keychain. On Windows it is kept in the current user's Credential Manager, on this computer only, and it does not roam.
 - The app only talks to your own Gitee / GitHub account. The one exception is the update check: at most once a day, it asks this project's GitHub page anonymously whether there is a new version. No token and no note content is sent. There are no analytics or ads.
 
 ## Usage (Mac)
@@ -62,6 +63,17 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 4. When a new version is out, the app offers to download it; click "打开安装包" (Open installer) and drag the new app onto Applications, as when installing, choosing Replace. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
 
 **Where notebooks live**: when you add a notebook the app shows where it will be saved — by default `~/Jitnote/<repository name>`; "更改…" lets you pick your own **empty folder** (the picker can create one). The place cannot be changed afterwards. Click the notebook name at the top of the left column and choose "打开文件夹" (Open folder) to see it in Finder, or "复制路径" (Copy path) to give it to an AI tool such as Claude Code or Cursor as its project folder. The folder is an ordinary Git repository: it does not matter if the AI edits files or even commits; sync uploads it all. A note that is open in the app and gets changed by another program shows the new text right away. Do not put a notebook in a folder that iCloud Drive or Dropbox syncs: they fight with the notebook's own sync. Removing a notebook deletes its folder if it is in the default place; a folder you picked is left exactly as it is.
+
+## Usage (Windows)
+
+Requires Windows 11, 64-bit. Windows 10 and earlier are not supported, and this version has no ARM package.
+
+1. Download `Jitnote-windows-x64-x.y.z.zip` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and extract the whole folder.
+2. Double-click `Jitnote.exe`. If Windows says it protected your PC, or that the publisher is unknown: click More info, then Run anyway. The program is not code-signed. This only happens the first time.
+3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree, and the open note. Ctrl+N creates a note, Ctrl+Shift+N creates a folder, Ctrl+R syncs, Ctrl+E switches between editing and preview (including while the cursor is in the editor), and Ctrl+, opens settings.
+4. When a new version is out, the download opens the folder that contains the zip. Quit Jitnote, then replace the current folder with the newly extracted one. Do not overwrite the program while it is still running.
+
+**Where notebooks live**: the default folder is `Jitnote\<repository name>` in your user profile. "更改…" picks your own **empty** folder. `desktop.ini` and `Thumbs.db` do not count as content. The place cannot be changed afterwards. Settings can open the folder in File Explorer or copy the path. Do not put a notebook in OneDrive, Dropbox or iCloud. Removing a notebook deletes the folder when it is in the default place; a folder you picked is left as it is. The cloud copy is never deleted. If the folder cannot be found, you can check again, pick the original folder, or download it again to the same place.
 
 ## Development
 
@@ -90,6 +102,17 @@ scripts/build-mac.sh --run    # builds mac/build/Jitnote.app and opens it
 
 `--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/superpowers/specs/2026-10-31-mac-client-design.md) (in Chinese).
 
+### Windows
+
+Requires the .NET 8 SDK. The Windows 11 zip can be built on a Mac or on Linux; a Windows machine is not required to compile it:
+
+```bash
+scripts/build-windows.sh --test   # sync and other tests (the same cases as the Mac suite)
+scripts/build-windows.sh          # windows/build/Jitnote-windows-x64-<version>.zip
+```
+
+When the UI runs on the Mac build machine there is no Credential Manager, so the token is written to a separate `tokens.json` in the app data directory. It is not inside a notebook and not inside the state file. The Windows package uses Credential Manager. The editor opens in Windows 11 WebView2; that layer is not part of a Mac compile, which uses a text box with the same save rule.
+
 ### Editor
 
 Requires Node 20+.
@@ -110,7 +133,7 @@ On `main`, with everything committed and pushed, run:
 scripts/release.sh
 ```
 
-The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK and the Mac app under [Releases](https://github.com/leon-mason/jitnote/releases).
+The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK, the Mac app and the Windows 11 package in one [Release](https://github.com/leon-mason/jitnote/releases). Already published versions are not rebuilt with a Windows package. The app is not listed in a store.
 
 - `scripts/release.sh -n` previews the version and commits without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation.
 - **Bumping the major version**: raise `MAJOR` at the top of `scripts/release.sh` (e.g. to `2`) and commit. The next release is `2.0.0`, then `2.1.0`, `2.2.0`, …
@@ -132,4 +155,4 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 
 Git is a registered trademark of Software Freedom Conservancy. "记特 / Jitnote" only borrows its sound; this project is not affiliated with the Git project.
 
-Main third-party components and their licenses: [JGit](https://www.eclipse.org/jgit/) (EDL 1.0), [Milkdown](https://milkdown.dev/) (MIT), [DOMPurify](https://github.com/cure53/DOMPurify) (Apache 2.0 / MPL 2.0), AndroidX / Jetpack Compose (Apache 2.0).
+Main third-party components and their licenses: [JGit](https://www.eclipse.org/jgit/) (EDL 1.0), [libgit2](https://libgit2.org/) (GPL-2.0 with a linking exception), [LibGit2Sharp](https://github.com/libgit2/libgit2sharp) (MIT), [Milkdown](https://milkdown.dev/) (MIT), [DOMPurify](https://github.com/cure53/DOMPurify) (Apache 2.0 / MPL 2.0), AndroidX / Jetpack Compose (Apache 2.0), [Avalonia](https://avaloniaui.net/) (MIT).
