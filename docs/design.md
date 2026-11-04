@@ -140,6 +140,10 @@ App 不在应用商店上架，新版本发布在本项目的 [GitHub Releases](
 
 原生 Swift / SwiftUI，两栏窗口，Git 用 libgit2，同步规则逐条移植自 Android 并共用同一套测试用例。详见 [Mac 客户端设计](superpowers/specs/2026-10-31-mac-client-design.md)。
 
+## App 图标
+
+两端的图标都由 `scripts/make-icons.py` 从 `docs/logo.png` 生成。logo 里的图案几乎贴着自己的边，所以不能原样当图标。【用户定】Mac 图标的图案和留白比例跟 Android 图标一致：图案缩小，圆角底板的外形不变。
+
 ## Android 技术选型
 
 | 项目 | 选择 | 原因 |

@@ -82,12 +82,16 @@ def feather_rim(tile, art):
     return out
 
 
-def android(tile, coef):
-    # Adaptive icons are 108dp squares; launchers show at least the middle 66dp circle.
-    art = artwork(tile, coef)
+def android_tile_dp(art):
+    """How wide the tile is on Android. Adaptive icons are 108dp squares; launchers show at least the
+    middle 66dp circle, so the artwork's farthest point has to stay within 33dp of the centre."""
     ys, xs = np.mgrid[0:TILE, 0:TILE] / TILE
     reach = np.sqrt((xs[art] - 0.5) ** 2 + (ys[art] - 0.5) ** 2).max()
-    tile_dp = 33 / reach
+    return 33 / reach
+
+
+def android(tile, art, coef):
+    tile_dp = android_tile_dp(art)
     tile = feather_rim(tile, art)
     for density, dp in [("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)]:
         size = round(108 * dp)
@@ -102,11 +106,18 @@ def android(tile, coef):
     print(f"✓ Android：图标占 108dp 里的 {tile_dp:.1f}dp")
 
 
-def mac(tile):
+def mac(tile, art, coef):
     # macOS icon grid: on a 1024 canvas the shape is 824 wide, with room left for its shadow.
     side, size = 824, 1024
     origin = (size - side) // 2
-    shape = tile.resize((side, side), Image.LANCZOS)
+    # The logo's artwork nearly touches its own edge, which looks cramped at icon size. Android's mask
+    # leaves it more room, so the artwork takes the same share of the shape here: launchers show 72dp of
+    # the 108dp adaptive icon. See "App 图标" in docs/design.md.
+    art_side = round(side * android_tile_dp(art) / 72)
+    art_origin = (side - art_side) // 2
+    shape = gradient(coef, side, art_origin, art_side)
+    shape.alpha_composite(feather_rim(tile, art).resize((art_side, art_side), Image.LANCZOS), (art_origin, art_origin))
+    shape.putalpha(tile.getchannel("A").resize((side, side), Image.LANCZOS))
     shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     shadow.paste((0, 0, 0, 255), (origin, origin + 12), shape.getchannel("A").point(lambda a: a * 0.35))
     icon = shadow.filter(ImageFilter.GaussianBlur(14))
@@ -128,8 +139,9 @@ def main():
         sys.exit("✗ 找不到 iconutil，请在 Mac 上运行。")
     tile = load_tile()
     coef = fit_background(tile)
-    android(tile, coef)
-    mac(tile)
+    art = artwork(tile, coef)
+    android(tile, art, coef)
+    mac(tile, art, coef)
 
 
 main()
