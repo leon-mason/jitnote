@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Jitnote.MainWindow"
+        Title="记特"
+        Width="1120"
+        Height="740"
+        MinWidth="800"
+        MinHeight="520"
+        FontFamily="Microsoft YaHei UI, PingFang SC, Noto Sans CJK SC, sans-serif">
+  <Grid>
+    <Grid ColumnDefinitions="300,*">
+      <DockPanel Grid.Column="0" Margin="12">
+        <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
+          <TextBlock Text="记特" FontSize="20" FontWeight="SemiBold" />
+          <ComboBox x:Name="NotebookPicker" HorizontalAlignment="Stretch" />
+          <WrapPanel Orientation="Horizontal">
+            <Button x:Name="AddNotebookButton" Content="添加笔记本" Margin="0,0,6,6" />
+            <Button x:Name="SyncButton" Content="同步" Margin="0,0,6,6" />
+            <Button x:Name="SettingsButton" Content="设置" Margin="0,0,6,6" />
+          </WrapPanel>
+          <TextBlock x:Name="UnsyncedLabel" Text="有未同步的修改" Foreground="#B86E00" IsVisible="False" />
+          <TextBlock x:Name="StatusLabel" TextWrapping="Wrap" Foreground="#666" />
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Button x:Name="NewNoteButton" Content="新建笔记" />
+            <Button x:Name="NewFolderButton" Content="新建文件夹" />
+          </StackPanel>
+        </StackPanel>
+        <ScrollViewer>
+          <StackPanel x:Name="Tree" Spacing="1" />
+        </ScrollViewer>
+      </DockPanel>
+      <Grid Grid.Column="1" Margin="0,12,12,12">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,0,8,8">
+            <TextBlock x:Name="NoteTitle" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button x:Name="ModeButton" Content="预览" />
+            <Button x:Name="HistoryButton" Content="历史版本" />
+            <Button x:Name="RenameButton" Content="重命名" />
+            <Button x:Name="DeleteButton" Content="删除" />
+          </StackPanel>
+          <ContentControl x:Name="EditorHost" />
+        </DockPanel>
+      </Grid>
+    </Grid>
+    <Border x:Name="Scrim" IsVisible="False" Background="#88000000" Padding="48">
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" CornerRadius="8" Padding="20" MaxWidth="640" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <ScrollViewer MaxHeight="640">
+          <StackPanel x:Name="Dialog" Spacing="10" />
+        </ScrollViewer>
+      </Border>
+    </Border>
+  </Grid>
+</Window>

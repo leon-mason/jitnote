@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Jitnote</RootNamespace>
+    <AssemblyName>Jitnote</AssemblyName>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <!-- The version number is owned by android/app/build.gradle.kts. Do not bump it here. -->
+    <AppVersionFile>$(MSBuildThisFileDirectory)..\..\..\android\app\build.gradle.kts</AppVersionFile>
+    <AppVersion>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(AppVersionFile)')), 'appVersion = &quot;([^&quot;]+)&quot;').Groups[1].Value)</AppVersion>
+    <Version Condition="'$(AppVersion)' != ''">$(AppVersion)</Version>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' Or $([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);JITNOTE_WEBVIEW2</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.5" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" Condition="'$(RuntimeIdentifier)' == 'win-x64' Or $([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Jitnote.Core\Jitnote.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\..\android\app\src\main\assets\editor\**\*">
+      <Link>editor\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

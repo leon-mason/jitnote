@@ -17,3 +17,8 @@ captures/
 
 # Web editor
 node_modules/
+
+# Windows client (the publish zip lives under windows/build/, already ignored as build/)
+.worktrees/
+windows/**/bin/
+windows/**/obj/
