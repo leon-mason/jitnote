@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Jitnote"
         x:Class="Jitnote.MainWindow"
         Title="记特"
         Width="1120"
@@ -31,14 +32,17 @@
       </DockPanel>
       <Grid Grid.Column="1" Margin="0,12,12,12">
         <DockPanel>
-          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,0,8,8">
+          <StackPanel x:Name="NoteBar" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,0,8,8">
             <TextBlock x:Name="NoteTitle" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
             <Button x:Name="ModeButton" Content="预览" />
             <Button x:Name="HistoryButton" Content="历史版本" />
             <Button x:Name="RenameButton" Content="重命名" />
             <Button x:Name="DeleteButton" Content="删除" />
           </StackPanel>
-          <ContentControl x:Name="EditorHost" />
+          <Grid>
+            <ContentControl x:Name="EditorHost" />
+            <local:ImageViewer x:Name="Viewer" IsVisible="False" />
+          </Grid>
         </DockPanel>
       </Grid>
     </Grid>

@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     bool shownPreview;
     bool preview;
     bool filling = true;
+    /// <summary>A picture tapped in the open note, notebook-relative. The note stays open underneath.</summary>
+    string? coverImage;
 
     public MainWindow() : this(new Session(Session.DefaultDirectory())) { }
 
@@ -34,6 +36,8 @@ public partial class MainWindow : Window
             session.SetOpenText(text);
             session.EditorChanged(text);
         };
+        surface.ImageTapped += OpenCover;
+        Viewer.BackRequested += CloseCover;
         session.Changed += () => Dispatcher.UIThread.Post(Refresh);
         AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddNotebookButton.Click += (_, _) => ShowAddNotebook();
@@ -72,6 +76,11 @@ public partial class MainWindow : Window
 
     void OnKey(object? sender, KeyEventArgs e)
     {
+        if (Viewer.IsVisible && !Scrim.IsVisible && Viewer.HandleKey(e))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
         int? code = e.Key switch
         {
@@ -111,6 +120,8 @@ public partial class MainWindow : Window
 
     void ToggleMode()
     {
+        // A picture has no modes, and the note under one would change unseen.
+        if (Viewer.IsVisible) return;
         preview = !preview;
         ShowOpen();
     }
@@ -162,8 +173,10 @@ public partial class MainWindow : Window
         };
         button.Click += (_, _) =>
         {
-            if (row.Entry.IsFolder) session.ToggleFolder(row.Entry.Path);
-            else session.OpenNote(row.Entry.Path);
+            if (row.Entry.IsFolder) { session.ToggleFolder(row.Entry.Path); return; }
+            // Before opening: picking the note a picture is covering has to uncover it, and its path does not change.
+            coverImage = null;
+            session.OpenNote(row.Entry.Path);
         };
         return button;
     }
@@ -175,26 +188,37 @@ public partial class MainWindow : Window
         {
             shownPath = path;
             preview = session.ViewFor(path) == ViewMode.PREVIEW;
+            coverImage = null;
         }
         NoteTitle.Text = path == null ? "" : Path.GetFileName(path);
         ModeButton.Content = preview ? "编辑" : "预览";
+        ModeButton.IsVisible = path == null || !NoteAssets.IsImage(path);
         if (session.Syncing)
         {
+            HideViewer();
             surface.ShowMessage("正在同步");
             return;
         }
         if (path == null || session.Current == null)
         {
+            HideViewer();
             surface.ShowMessage(session.Current == null ? "添加一个笔记本之后，笔记会显示在这里。" : "打开左边的一篇笔记");
+            return;
+        }
+        if (coverImage != null)
+        {
+            // The buttons above act on the open note, which is not what is on screen now.
+            ShowViewer(coverImage, covering: true);
             return;
         }
         if (NoteAssets.IsImage(path))
         {
-            var full = Path.Combine(session.FolderOf(session.Current), path.Replace('/', Path.DirectorySeparatorChar));
-            if (EditorServer.Safe(session.FolderOf(session.Current), path) != null && File.Exists(full)) surface.ShowImage(full);
-            else surface.ShowMessage("这张图片打不开");
+            // Opened from the tree, this is the open file: rename, delete and history apply to it, as with any other.
+            shownText = null;
+            ShowViewer(path, covering: false);
             return;
         }
+        HideViewer();
         if (session.OpenText == null)
         {
             shownText = null;
@@ -207,6 +231,46 @@ public partial class MainWindow : Window
         shownText = session.OpenText;
         shownPreview = preview;
         surface.ShowText(session.OpenText, preview);
+    }
+
+    /// <summary>
+    /// The editor is hidden, not removed. It is a native window, so nothing can be drawn over it,
+    /// and removing it would destroy the page along with the note's cursor and scroll position.
+    /// </summary>
+    void ShowViewer(string path, bool covering)
+    {
+        var root = session.FolderOf(session.Current!);
+        // A path that leaves the notebook shows as "cannot open": the viewer gets a name no file has.
+        var full = EditorServer.Safe(root, path) ?? Path.Combine(root, ".missing");
+        Viewer.Show(full, canGoBack: covering, showName: covering);
+        NoteBar.IsVisible = !covering;
+        Viewer.IsVisible = true;
+        EditorHost.IsVisible = false;
+    }
+
+    void HideViewer()
+    {
+        NoteBar.IsVisible = true;
+        if (!Viewer.IsVisible) return;
+        Viewer.IsVisible = false;
+        Viewer.Clear();
+        EditorHost.IsVisible = true;
+    }
+
+    void OpenCover(string path)
+    {
+        coverImage = path;
+        ShowOpen();
+        // The hidden editor must not keep the keyboard, or typing would still edit the note unseen.
+        surface.ReleaseKeyboard();
+    }
+
+    void CloseCover()
+    {
+        coverImage = null;
+        ShowOpen();
+        // After the layout pass that shows the editor again: a hidden native window cannot take focus.
+        Dispatcher.UIThread.Post(surface.TakeKeyboard, DispatcherPriority.Background);
     }
 
     async Task RunSync()

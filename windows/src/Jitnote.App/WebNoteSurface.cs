@@ -29,14 +29,15 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
             var full = session.ResolveReference(path);
             if (full == null) return "";
             var root = session.Current == null ? "" : session.FolderOf(session.Current);
-            var relative = root.Length == 0 ? "" : Path.GetRelativePath(root, full).Replace('\\', '/');
-            return relative.Length == 0 ? "" : server.NotebookUrl(relative);
+            // Relative, not a URL: the editor adds its notebookUrl, and hands this same path back on a tap.
+            return root.Length == 0 ? "" : Path.GetRelativePath(root, full).Replace('\\', '/');
         });
         SizeChanged += (_, _) => Fit();
     }
 
     public string? CurrentText { get; private set; }
     public event Action<string>? TextEdited;
+    public event Action<string>? ImageTapped;
 
     public void ShowText(string text, bool readOnly)
     {
@@ -48,15 +49,14 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
         _ = Load(text);
     }
 
-    public void ShowImage(string file)
+    public void ReleaseKeyboard()
     {
-        CurrentText = null;
-        if (session.Current == null || controller == null) return;
-        var root = session.FolderOf(session.Current);
-        server.SetNotebook(root);
-        var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
-        controller.CoreWebView2.Navigate(server.NotebookUrl(relative));
+        // Hiding a window that holds the focus does not move it, so hand it to the main window ourselves.
+        var window = TopLevel.GetTopLevel(this)?.TryGetPlatformHandle()?.Handle;
+        if (window != null) SetFocus(window.Value);
     }
+
+    public void TakeKeyboard() => controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
 
     public void ShowMessage(string message)
     {
@@ -117,6 +117,12 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
                 CurrentText = text;
                 TextEdited?.Invoke(text);
             }
+            else if (type == "image" && document.RootElement.TryGetProperty("path", out var path))
+            {
+                var tapped = path.GetString();
+                if (!string.IsNullOrEmpty(tapped))
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ImageTapped?.Invoke(tapped));
+            }
         }
         catch { /* a message that is not ours is ignored */ }
     }
@@ -169,6 +175,9 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
 
     [DllImport("user32.dll")]
     static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetFocus(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     static extern short GetAsyncKeyState(int key);

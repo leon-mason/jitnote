@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.Media.Imaging;
 
 namespace Jitnote;
 
@@ -12,11 +11,16 @@ namespace Jitnote;
 public interface INoteSurface
 {
     void ShowText(string text, bool readOnly);
-    void ShowImage(string file);
     void ShowMessage(string message);
     void SetBusy(bool busy);
     string? CurrentText { get; }
+    /// <summary>Gives up the keyboard while a picture covers the note.</summary>
+    void ReleaseKeyboard();
+    /// <summary>Takes the keyboard back, with the cursor where it was.</summary>
+    void TakeKeyboard();
     event Action<string>? TextEdited;
+    /// <summary>A picture was tapped in the note; the path is relative to the notebook.</summary>
+    event Action<string>? ImageTapped;
 }
 
 public sealed class TextNoteSurface : UserControl, INoteSurface
@@ -26,7 +30,6 @@ public sealed class TextNoteSurface : UserControl, INoteSurface
         AcceptsReturn = true,
         TextWrapping = Avalonia.Media.TextWrapping.Wrap,
     };
-    readonly Image image = new() { Stretch = Avalonia.Media.Stretch.Uniform };
     readonly TextBlock message = new()
     {
         HorizontalAlignment = HorizontalAlignment.Center,
@@ -46,7 +49,6 @@ public sealed class TextNoteSurface : UserControl, INoteSurface
             if (!loading) TextEdited?.Invoke(box.Text ?? "");
         };
         root.Children.Add(box);
-        root.Children.Add(image);
         root.Children.Add(message);
         Content = root;
         ShowMessage("打开左边的一篇笔记");
@@ -55,6 +57,13 @@ public sealed class TextNoteSurface : UserControl, INoteSurface
     public string? CurrentText => box.IsVisible ? box.Text : null;
 
     public event Action<string>? TextEdited;
+
+    // A text box shows no pictures, so none can be tapped.
+    public event Action<string>? ImageTapped { add { } remove { } }
+
+    public void ReleaseKeyboard() { }
+
+    public void TakeKeyboard() => box.Focus();
 
     public void SetBusy(bool busy)
     {
@@ -70,15 +79,6 @@ public sealed class TextNoteSurface : UserControl, INoteSurface
         box.IsReadOnly = busy || readOnly;
         loading = false;
         box.IsVisible = true;
-        image.IsVisible = false;
-        message.IsVisible = false;
-    }
-
-    public void ShowImage(string file)
-    {
-        image.Source = new Bitmap(file);
-        box.IsVisible = false;
-        image.IsVisible = true;
         message.IsVisible = false;
     }
 
@@ -86,7 +86,6 @@ public sealed class TextNoteSurface : UserControl, INoteSurface
     {
         message.Text = text;
         box.IsVisible = false;
-        image.IsVisible = false;
         message.IsVisible = true;
     }
 }
