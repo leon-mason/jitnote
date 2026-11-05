@@ -30,6 +30,10 @@ struct GeneralSettingsView: View {
                 Text("显示隐藏文件")
                 Text("显示以 . 开头的文件和文件夹，比如 .obsidian、.gitignore。Git 自己的 .git 文件夹始终不显示。")
             }
+            Toggle(isOn: Binding(get: { notebooks.state.syncOnLaunch }, set: notebooks.setSyncOnLaunch)) {
+                Text("启动时自动同步")
+                Text("打开 App，或离开超过一分钟后再回来，自动同步当前笔记本。没有变化时不提示。")
+            }
             Picker(selection: Binding(get: { notebooks.state.defaultViewMode }, set: notebooks.setDefaultViewMode)) {
                 Text("编辑").tag(ViewMode.edit)
                 Text("预览").tag(ViewMode.preview)

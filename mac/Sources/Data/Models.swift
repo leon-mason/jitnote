@@ -102,6 +102,8 @@ struct AppState: Codable, Equatable {
     var defaultViewMode: ViewMode = .edit
     /// List files and folders starting with "." (never .git), see `NoteIndex.isHidden`.
     var showHiddenFiles = false
+    /// Sync the current notebook when the app comes to the foreground. Off by default. See design.md「同步规则」.
+    var syncOnLaunch = false
     /// Last successful check for a new app version, see `AppUpdates`.
     var lastUpdateCheckAt: Int64?
 
@@ -120,6 +122,7 @@ struct AppState: Codable, Equatable {
         expandedFolders = try c.decodeIfPresent([String: Set<String>].self, forKey: .expandedFolders) ?? [:]
         defaultViewMode = (try? c.decodeIfPresent(ViewMode.self, forKey: .defaultViewMode)) ?? .edit
         showHiddenFiles = try c.decodeIfPresent(Bool.self, forKey: .showHiddenFiles) ?? false
+        syncOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .syncOnLaunch) ?? false
         lastUpdateCheckAt = try c.decodeIfPresent(Int64.self, forKey: .lastUpdateCheckAt)
     }
 }

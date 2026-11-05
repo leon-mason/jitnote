@@ -280,6 +280,18 @@ public class FolderRuleTests : IDisposable
     }
 
     [Fact]
+    public void AutoSyncOnColdStartOnlyOnceAndAfterAMinuteAway()
+    {
+        Assert.True(AutoSync.ShouldStart(true, false, true, null, false));
+        Assert.False(AutoSync.ShouldStart(true, false, true, null, true));
+        Assert.False(AutoSync.ShouldStart(true, false, true, AutoSync.MinAwayMs - 1, true));
+        Assert.True(AutoSync.ShouldStart(true, false, true, AutoSync.MinAwayMs, true));
+        Assert.False(AutoSync.ShouldStart(false, false, true, null, false));
+        Assert.False(AutoSync.ShouldStart(true, true, true, null, false));
+        Assert.False(AutoSync.ShouldStart(true, false, false, null, false));
+    }
+
+    [Fact]
     public void OldStateKeepsAccountsAndLeavesTheTokenOut()
     {
         var json = """
@@ -296,6 +308,7 @@ public class FolderRuleTests : IDisposable
         Assert.Single(state.Notebooks);
         Assert.Equal("n1", state.CurrentNotebookId);
         Assert.True(state.ShowHiddenFiles);
+        Assert.False(state.SyncOnLaunch);
         Assert.Equal(NoteSort.TITLE_ASC, state.FileSort);
         Assert.Equal(ViewMode.EDIT, state.DefaultViewMode);
         var old = """{"id":"n1","name":"读书","accountId":"a","remoteUrl":"https://x/y.git","dir":"n1","createdAt":5,"lastSyncAt":9}""";

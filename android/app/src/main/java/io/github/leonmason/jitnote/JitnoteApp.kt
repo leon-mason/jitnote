@@ -2,6 +2,9 @@ package io.github.leonmason.jitnote
 
 import android.app.Application
 import android.webkit.WebView
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.leonmason.jitnote.core.GitEnvironment
 import io.github.leonmason.jitnote.data.AppUpdates
 import io.github.leonmason.jitnote.data.HostingApi
@@ -28,5 +31,10 @@ class JitnoteApp : Application() {
             vault = TokenVault(),
         )
         updates = AppUpdates(cacheDir, store, BuildConfig.VERSION_NAME)
+        // Process lifecycle ignores rotation and our own screens. ON_STOP means the app is really in the background.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = notebooks.onForeground()
+            override fun onStop(owner: LifecycleOwner) = notebooks.onBackground()
+        })
     }
 }

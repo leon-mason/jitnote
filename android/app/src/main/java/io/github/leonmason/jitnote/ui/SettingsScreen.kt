@@ -35,6 +35,15 @@ fun SettingsScreen(notebooks: Notebooks, nav: Navigator) {
                 },
             )
             ListItem(
+                headlineContent = { Text("启动时自动同步") },
+                supportingContent = {
+                    Text("打开 App，或离开超过一分钟后再回来，自动同步当前笔记本。没有变化时不提示。")
+                },
+                trailingContent = {
+                    Switch(checked = state.syncOnLaunch, onCheckedChange = notebooks::setSyncOnLaunch)
+                },
+            )
+            ListItem(
                 headlineContent = { Text("打开笔记时默认为") },
                 supportingContent = {
                     Column {

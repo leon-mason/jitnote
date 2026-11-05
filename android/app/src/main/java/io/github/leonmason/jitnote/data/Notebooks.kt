@@ -12,6 +12,7 @@ import io.github.leonmason.jitnote.core.SyncResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -202,6 +203,8 @@ class Notebooks(
 
     fun setShowHiddenFiles(show: Boolean) = store.update { it.copy(showHiddenFiles = show) }
 
+    fun setSyncOnLaunch(enabled: Boolean) = store.update { it.copy(syncOnLaunch = enabled) }
+
     /** Removes the notebook from this device only. The cloud repository is left alone. */
     suspend fun deleteLocal(notebook: Notebook) = withContext(Dispatchers.IO) {
         withLock(notebook) { dir(notebook).deleteRecursively() }
@@ -254,9 +257,48 @@ class Notebooks(
 
     fun isSyncing(notebookId: String) = syncStates.value[notebookId] == SyncState.Running
 
-    fun startSync(notebook: Notebook) {
+    fun startSync(notebook: Notebook, announceUnchanged: Boolean = true) {
         if (isSyncing(notebook.id)) return
-        scope.launch { sync(notebook) }
+        scope.launch { sync(notebook, announceUnchanged = announceUnchanged) }
+    }
+
+    private var backgroundAt: Long? = null
+    private var sawForeground = false
+    /** Bumped on every background so a sync scheduled for the previous return is dropped. */
+    private var foregroundEpoch = 0
+
+    /** The app is no longer visible. A later [onForeground] may auto-sync. See design.md「同步规则」. */
+    fun onBackground() {
+        foregroundEpoch++
+        // A stop that arrives before the first start (rotation, process setup) is not "the user left".
+        if (sawForeground) backgroundAt = System.currentTimeMillis()
+    }
+
+    /**
+     * The app is visible again: a cold start, or a return from the background.
+     * Does nothing unless「启动时自动同步」is on.
+     */
+    fun onForeground() {
+        val away = backgroundAt?.let { System.currentTimeMillis() - it }
+        backgroundAt = null
+        val handled = sawForeground
+        sawForeground = true
+        val notebook = current(store.state.value) ?: return
+        val busy = isSyncing(notebook.id) || _pendingSync.value != null
+        if (!AutoSync.shouldStart(store.state.value.syncOnLaunch, busy, true, away, handled)) return
+        if (away == null) {
+            startSync(notebook, announceUnchanged = false)
+            return
+        }
+        // The save requested on the way out may complete only after this return. See AutoSync.RESUME_FLUSH_MS.
+        val scheduled = foregroundEpoch
+        scope.launch {
+            delay(AutoSync.RESUME_FLUSH_MS)
+            if (foregroundEpoch != scheduled) return@launch
+            val current = current(store.state.value) ?: return@launch
+            if (!store.state.value.syncOnLaunch || isSyncing(current.id) || _pendingSync.value != null) return@launch
+            startSync(current, announceUnchanged = false)
+        }
     }
 
     /** Goes on with a sync that asked a question, using the user's answers. */
@@ -275,7 +317,7 @@ class Notebooks(
         _syncStates.update { it + (pending.notebook.id to SyncState.Finished(++syncSeq, false, message, 0)) }
     }
 
-    private suspend fun sync(notebook: Notebook, choices: Map<String, Side> = emptyMap()) {
+    private suspend fun sync(notebook: Notebook, choices: Map<String, Side> = emptyMap(), announceUnchanged: Boolean = true) {
         _syncStates.update { it + (notebook.id to SyncState.Running) }
         val finished = try {
             val account = account(notebook.accountId) ?: throw SyncException(SyncException.Kind.AUTH, "这个笔记本用的云端账号已断开，请重新连接")
@@ -286,7 +328,9 @@ class Notebooks(
                 null
             } else {
                 updateNotebook(notebook.id) { it.copy(lastSyncAt = System.currentTimeMillis(), lastSyncError = null) }
-                SyncState.Finished(++syncSeq, true, describe(result), result.resolved)
+                // An automatic sync that changed nothing stays quiet. A manual one still says "已是最新".
+                if (!announceUnchanged && result.resolved == 0 && !result.pulled && !result.pushed) null
+                else SyncState.Finished(++syncSeq, true, describe(result), result.resolved)
             }
         } catch (e: Exception) {
             val message = (e as? SyncException)?.message ?: NotebookGit.classify(e).message ?: "同步失败"

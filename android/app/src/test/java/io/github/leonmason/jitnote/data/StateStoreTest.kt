@@ -30,6 +30,7 @@ class StateStoreTest {
         assertEquals("n1", state.currentNotebookId)
         assertEquals(NoteSort.TITLE_ASC, state.fileSort)
         assertEquals(ViewMode.EDIT, state.defaultViewMode)
+        assertEquals(false, state.syncOnLaunch)
         assertEquals(emptyMap<String, Set<String>>(), state.expandedFolders)
     }
 }

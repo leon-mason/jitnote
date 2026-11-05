@@ -76,6 +76,8 @@ public sealed class AppState
     public Dictionary<string, HashSet<string>> ExpandedFolders { get; set; } = new();
     public ViewMode DefaultViewMode { get; set; } = ViewMode.EDIT;
     public bool ShowHiddenFiles { get; set; }
+    /// <summary>Sync the current notebook when the app comes to the foreground. Off by default. See design.md「同步规则」.</summary>
+    public bool SyncOnLaunch { get; set; }
     public long? LastUpdateCheckAt { get; set; }
 
     public Notebook? CurrentNotebook =>
@@ -94,4 +96,28 @@ public static class AppJson
     };
 
     public static long NowMillis() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+}
+
+/// <summary>
+/// When「启动时自动同步」should start a sync. See design.md「同步规则」.
+/// This does not start the sync.
+/// </summary>
+public static class AutoSync
+{
+    /// <summary>
+    /// A quick trip out (copy a line, a notification) must not lock the open note on "正在同步".
+    /// A minute covers that. Coming back after writing on another device takes longer.
+    /// </summary>
+    public const long MinAwayMs = 60_000;
+
+    /// <summary>
+    /// <paramref name="awayMs"/> is null the first time the process comes forward, and on a duplicate
+    /// foreground event with no background in between. <paramref name="launchHandled"/> is true after that first event.
+    /// </summary>
+    public static bool ShouldStart(bool enabled, bool busy, bool hasNotebook, long? awayMs, bool launchHandled)
+    {
+        if (!enabled || busy || !hasNotebook) return false;
+        if (awayMs is long away) return away >= MinAwayMs;
+        return !launchHandled;
+    }
 }

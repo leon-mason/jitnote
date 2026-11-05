@@ -40,7 +40,7 @@ Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Rel
 
 The home screen is the **file tree** of the current notebook: like Obsidian, it shows every file and folder with full names. Tap a folder to expand or collapse it (empty folders too) and a file to open it; the app remembers which folders are expanded. New notes and new folders are created at the highlighted location. Tap the notebook name at the top to switch notebooks or open "管理笔记本" (Manage notebooks). Whether a note opens for editing or in preview is set under "⋮ → 设置" (Settings), and you can switch at any time from the top bar once it is open; preview is read-only and never changes the file.
 
-Hidden files starting with "." (such as `.obsidian` and `.gitignore`) are not shown unless you turn on "显示隐藏文件" in "⋮ → 设置" (on the Mac: Settings → 通用; on Windows: 设置). Git's own `.git` folder is never shown.
+Hidden files starting with "." (such as `.obsidian` and `.gitignore`) are not shown unless you turn on "显示隐藏文件" in "⋮ → 设置" (on the Mac: Settings → 通用; on Windows: 设置). Git's own `.git` folder is never shown. The same settings page has "启动时自动同步" (Sync when the app opens): opening the app, or coming back after more than a minute away, syncs the current notebook. Nothing is announced when there is nothing new.
 
 Deleting a notebook only removes the copy on the phone; the repository in the cloud is not affected.
 

@@ -61,6 +61,12 @@ public partial class MainWindow : Window
         {
             if (session.UpdateDue()) await OfferUpdate(false);
         };
+        Activated += (_, _) => session.OnForeground();
+        Deactivated += (_, _) =>
+        {
+            session.Flush();
+            session.OnBackground();
+        };
         Refresh();
     }
 
@@ -513,6 +519,7 @@ public partial class MainWindow : Window
     void ShowSettings()
     {
         var hidden = new CheckBox { Content = "显示隐藏文件（以 . 开头的文件。.git 始终不显示）", IsChecked = session.State.ShowHiddenFiles };
+        var autoSync = new CheckBox { Content = "启动时自动同步", IsChecked = session.State.SyncOnLaunch };
         var sort = new ComboBox
         {
             ItemsSource = new[] { "按名称", "按名称（倒序）", "按修改时间", "按修改时间（从早到晚）" },
@@ -529,6 +536,8 @@ public partial class MainWindow : Window
         {
             new TextBlock { Text = "设置", FontSize = 18 },
             hidden,
+            autoSync,
+            new TextBlock { Text = "打开程序，或离开超过一分钟后再回来，自动同步当前笔记本。没有变化时不提示。", Opacity = 0.7, TextWrapping = TextWrapping.Wrap },
             new TextBlock { Text = "新建的笔记和纯文本文件总是编辑。" , Opacity = 0.7, TextWrapping = TextWrapping.Wrap },
             new TextBlock { Text = "文件怎么排" },
             sort,
@@ -551,6 +560,7 @@ public partial class MainWindow : Window
         rows.Add(Buttons(("关闭", () =>
         {
             session.SetHidden(hidden.IsChecked == true);
+            session.SetSyncOnLaunch(autoSync.IsChecked == true);
             session.SetSort(sort.SelectedIndex switch
             {
                 1 => NoteSort.TITLE_DESC,

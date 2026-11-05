@@ -1,5 +1,20 @@
 import Foundation
 
+/// When「启动时自动同步」should start a sync. See design.md「同步规则」.
+enum AutoSync {
+    /// A quick trip out (copy a line, a notification) must not lock the open note on "正在同步".
+    /// A minute covers that. Coming back after writing on another device takes longer.
+    static let minAwayMs: Int64 = 60_000
+
+    /// `awayMs` is nil the first time the process comes forward, and on a duplicate foreground
+    /// event with no background in between. `launchHandled` is true after that first event.
+    static func shouldStart(enabled: Bool, busy: Bool, hasNotebook: Bool, awayMs: Int64?, launchHandled: Bool) -> Bool {
+        guard enabled, !busy, hasNotebook else { return false }
+        if let awayMs { return awayMs >= minAwayMs }
+        return !launchHandled
+    }
+}
+
 /// Everything the windows do with accounts and notebooks. Git work runs off the main thread,
 /// one operation per notebook at a time. Mirrors `Notebooks.kt` on Android.
 @MainActor
@@ -114,6 +129,8 @@ final class Notebooks: ObservableObject {
     func setDefaultViewMode(_ mode: ViewMode) { update { $0.defaultViewMode = mode } }
 
     func setShowHiddenFiles(_ show: Bool) { update { $0.showHiddenFiles = show } }
+
+    func setSyncOnLaunch(_ enabled: Bool) { update { $0.syncOnLaunch = enabled } }
 
     func touch() { revision += 1 }
 
@@ -320,9 +337,31 @@ final class Notebooks: ObservableObject {
 
     func isSyncing(_ notebook: Notebook) -> Bool { syncing.contains(notebook.id) }
 
-    func startSync(_ notebook: Notebook) {
+    func startSync(_ notebook: Notebook, announceUnchanged: Bool = true) {
         guard !isSyncing(notebook) else { return }
-        Task { await sync(notebook) }
+        Task { await sync(notebook, announceUnchanged: announceUnchanged) }
+    }
+
+    private var backgroundAt: Int64?
+    private var sawForeground = false
+
+    /// The app is no longer the active one. A later [onForeground] may auto-sync. See design.md「同步规则」.
+    func onBackground() {
+        // A resign that arrives before the first activate is not "the user left".
+        guard sawForeground else { return }
+        backgroundAt = nowMillis()
+    }
+
+    /// The app is active again: a cold start, or a return from another app. Does nothing unless the setting is on.
+    func onForeground() {
+        let away = backgroundAt.map { nowMillis() - $0 }
+        backgroundAt = nil
+        let handled = sawForeground
+        sawForeground = true
+        guard let notebook = state.currentNotebook else { return }
+        let busy = isSyncing(notebook) || pendingSync != nil || NotebookFolders.isMissing(dir(notebook))
+        guard AutoSync.shouldStart(enabled: state.syncOnLaunch, busy: busy, hasNotebook: true, awayMs: away, launchHandled: handled) else { return }
+        startSync(notebook, announceUnchanged: false)
     }
 
     private static let folderGoneMessage = "找不到这个笔记本的文件夹，没法同步。请先在笔记本页面里找回它，或者重新下载。"
@@ -341,7 +380,7 @@ final class Notebooks: ObservableObject {
         syncMessage = SyncMessage(notebookId: pending.notebook.id, ok: false, text: "已取消同步。两边的修改都还在，下次同步时再选择。")
     }
 
-    private func sync(_ notebook: Notebook, choices: [String: Side] = [:]) async {
+    private func sync(_ notebook: Notebook, choices: [String: Side] = [:], announceUnchanged: Bool = true) async {
         // Never "sync" a folder that is not there: nothing in it to upload, and a fresh empty one must not appear.
         if NotebookFolders.isMissing(dir(notebook)) {
             folderChecks += 1
@@ -373,7 +412,11 @@ final class Notebooks: ObservableObject {
                     $0.lastSyncAt = nowMillis()
                     $0.lastSyncError = nil
                 }
-                syncMessage = SyncMessage(notebookId: notebook.id, ok: true, text: Self.describe(result))
+                // An automatic sync that changed nothing stays quiet. A manual one still says "已是最新".
+                let unchanged = result.resolved == 0 && !result.pulled && !result.pushed
+                if announceUnchanged || !unchanged {
+                    syncMessage = SyncMessage(notebookId: notebook.id, ok: true, text: Self.describe(result))
+                }
             }
         } catch {
             let message = NotebookGit.classify(error).message

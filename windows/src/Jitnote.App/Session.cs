@@ -36,6 +36,8 @@ public sealed class Session
     public string? OpenText { get; private set; }
     public NoteSaver? Saver { get; private set; }
     public bool Syncing { get; private set; }
+    long? backgroundAt;
+    bool launchHandled;
     public string? Status { get; private set; }
     public bool Unsynced { get; private set; }
     public IReadOnlyList<FileTree.Row> Rows { get; private set; } = Array.Empty<FileTree.Row>();
@@ -391,6 +393,39 @@ public sealed class Session
         State.DefaultViewMode = mode;
         SaveState();
         Raise();
+    }
+
+    public void SetSyncOnLaunch(bool enabled)
+    {
+        State.SyncOnLaunch = enabled;
+        SaveState();
+        Raise();
+    }
+
+    /// <summary>The app is no longer the active one. A later <see cref="OnForeground"/> may auto-sync.</summary>
+    public void OnBackground()
+    {
+        // A deactivate that arrives before the first activate is not "the user left".
+        if (launchHandled) backgroundAt = AppJson.NowMillis();
+    }
+
+    /// <summary>The app is active again. Does nothing unless「启动时自动同步」is on. See design.md「同步规则」.</summary>
+    public void OnForeground()
+    {
+        var away = backgroundAt is long left ? AppJson.NowMillis() - left : (long?)null;
+        backgroundAt = null;
+        var handled = launchHandled;
+        launchHandled = true;
+        var notebook = Current;
+        var busy = Syncing || Pending.Count > 0 || (notebook != null && Missing(notebook));
+        if (!AutoSync.ShouldStart(State.SyncOnLaunch, busy, notebook != null, away, handled) || notebook == null) return;
+        _ = SyncQuiet(notebook);
+    }
+
+    async Task SyncQuiet(Notebook notebook)
+    {
+        try { await Sync(notebook); }
+        catch (SyncException) { /* Status already says why. */ }
     }
 
     public ViewMode ViewFor(string? path)

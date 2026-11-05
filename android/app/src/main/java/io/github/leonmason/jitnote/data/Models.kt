@@ -57,6 +57,11 @@ data class AppState(
     val defaultViewMode: ViewMode = ViewMode.EDIT,
     /** List files and folders starting with "." (never .git), see [NoteIndex.isHidden]. */
     val showHiddenFiles: Boolean = false,
+    /**
+     * Sync the current notebook when the app comes to the foreground. Off by default.
+     * See design.md「同步规则」.
+     */
+    val syncOnLaunch: Boolean = false,
     /** Last successful check for a new app version, see [AppUpdates]. */
     val lastUpdateCheckAt: Long? = null,
 )

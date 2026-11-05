@@ -41,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillResignActive(_ notification: Notification) {
         NotificationCenter.default.post(name: .saveNow, object: nil)
+        Task { @MainActor in AppModel.shared.notebooks.onBackground() }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        Task { @MainActor in AppModel.shared.notebooks.onForeground() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

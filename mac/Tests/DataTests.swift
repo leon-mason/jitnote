@@ -361,6 +361,16 @@ enum FileTreeTests {
             try expectEqual(FileTree.removed(["会议", "会议/2026", "会议记录"], path: "会议"), ["会议记录"])
         },
 
+        TestCase("autoSyncOnColdStartOnlyOnceAndAfterAMinuteAway") { _ in
+            try expect(AutoSync.shouldStart(enabled: true, busy: false, hasNotebook: true, awayMs: nil, launchHandled: false))
+            try expect(!AutoSync.shouldStart(enabled: true, busy: false, hasNotebook: true, awayMs: nil, launchHandled: true))
+            try expect(!AutoSync.shouldStart(enabled: true, busy: false, hasNotebook: true, awayMs: AutoSync.minAwayMs - 1, launchHandled: true))
+            try expect(AutoSync.shouldStart(enabled: true, busy: false, hasNotebook: true, awayMs: AutoSync.minAwayMs, launchHandled: true))
+            try expect(!AutoSync.shouldStart(enabled: false, busy: false, hasNotebook: true, awayMs: nil, launchHandled: false))
+            try expect(!AutoSync.shouldStart(enabled: true, busy: true, hasNotebook: true, awayMs: nil, launchHandled: false))
+            try expect(!AutoSync.shouldStart(enabled: true, busy: false, hasNotebook: false, awayMs: nil, launchHandled: false))
+        },
+
         TestCase("oldStateFileKeepsAccountsAndNotebooks") { _ in
             let json = #"""
             {
@@ -376,6 +386,7 @@ enum FileTreeTests {
             try expectEqual(state.notebooks.count, 1)
             try expectEqual(state.currentNotebookId, "n1")
             try expect(state.showHiddenFiles)
+            try expect(!state.syncOnLaunch)
             try expectEqual(state.fileSort, .titleAsc)
             try expectEqual(state.defaultViewMode, .edit)
             try expectEqual(state.expandedFolders, [:])
