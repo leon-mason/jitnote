@@ -85,7 +85,8 @@ struct NotebookView: View {
     @State private var prompt: Prompt?
     @State private var deleting: URL?
     @State private var historyPath: String?
-    @State private var image: URL?
+    /// The picture covering the note pane, notebook-relative; the open note stays mounted underneath.
+    @State private var imagePath: String?
     @State private var toast: Notebooks.SyncMessage?
 
     /// `newNote` and `newFolder` carry the folder they create in.
@@ -154,7 +155,7 @@ struct NotebookView: View {
         .onReceive(NotificationCenter.default.publisher(for: .newFolder)) { _ in prompt = .newFolder(currentFolder) }
         .onReceive(NotificationCenter.default.publisher(for: .syncNow)) { _ in sync() }
         .onReceive(NotificationCenter.default.publisher(for: .toggleViewMode)) { _ in
-            if let selection, isMarkdown(selection), !syncing { toggleViewMode() }
+            if let selection, isMarkdown(selection), !syncing, imagePath == nil { toggleViewMode() }
         }
         #if GN_DEBUG_HOOKS
         .onReceive(NotificationCenter.default.publisher(for: .debugCommand)) { note in
@@ -195,9 +196,6 @@ struct NotebookView: View {
         }
         .modifier(SyncQuestionSheet())
         .modifier(FolderChanges(folder: root, onChange: externalChange))
-        .sheet(item: Binding(get: { image.map { PathItem(path: $0.path) } }, set: { image = $0.map { URL(fileURLWithPath: $0.path) } })) { item in
-            ImageViewer(file: URL(fileURLWithPath: item.path)) { image = nil }
-        }
         .alert(deleteTitle, isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("删除", role: .destructive) { delete() }
             Button("取消", role: .cancel) {}
@@ -215,8 +213,24 @@ struct NotebookView: View {
         return NoteIndex.resolveReference(at: root.appendingPathComponent(selection), in: root) ?? selection
     }
 
-    @ViewBuilder
+    private var viewingImage: Bool { imagePath != nil && !syncing }
+
+    /// The picture goes over the open file, not in place of it: replacing a note would count as leaving it,
+    /// which saves, records a version and loses the scroll position just for looking at a picture.
     private var detail: some View {
+        ZStack {
+            openFile
+                .opacity(viewingImage ? 0 : 1)
+                .allowsHitTesting(!viewingImage)
+            if viewingImage, let imagePath {
+                ImageViewer(file: root.appendingPathComponent(imagePath), revision: refresh, onClose: closeImage)
+                    .id(imagePath)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openFile: some View {
         if syncing {
             Waiting(message: "正在同步，请稍候…")
         } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path),
@@ -225,10 +239,12 @@ struct NotebookView: View {
                 .id(path)
                 .toolbar {
                     ToolbarItem {
-                        Button { NSWorkspace.shared.open(root.appendingPathComponent(path)) } label: {
-                            Label("用其他应用打开", systemImage: "arrow.up.forward.app")
+                        if !viewingImage {
+                            Button { NSWorkspace.shared.open(root.appendingPathComponent(path)) } label: {
+                                Label("用其他应用打开", systemImage: "arrow.up.forward.app")
+                            }
+                            .help("用其他应用打开")
                         }
-                        .help("用其他应用打开")
                     }
                 }
         } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
@@ -238,18 +254,20 @@ struct NotebookView: View {
                            Task { await notebooks.refreshUnsynced(notebook) }
                            refresh += 1
                        },
-                       onOpenImage: { image = root.appendingPathComponent($0) })
+                       onOpenImage: { imagePath = $0 })
                 .id(path)
                 .toolbar {
                     ToolbarItemGroup {
-                        if isMarkdown(path) {
-                            Button(action: toggleViewMode) {
-                                Label(viewMode == .preview ? "编辑" : "预览", systemImage: viewMode == .preview ? "pencil" : "eye")
+                        if !viewingImage {
+                            if isMarkdown(path) {
+                                Button(action: toggleViewMode) {
+                                    Label(viewMode == .preview ? "编辑" : "预览", systemImage: viewMode == .preview ? "pencil" : "eye")
+                                }
+                                .help(viewMode == .preview ? "切换到编辑（⌘E）" : "切换到预览（⌘E）")
                             }
-                            .help(viewMode == .preview ? "切换到编辑（⌘E）" : "切换到预览（⌘E）")
+                            Button { historyPath = path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
+                                .help("历史版本")
                         }
-                        Button { historyPath = path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
-                            .help("历史版本")
                     }
                 }
         } else {
@@ -279,11 +297,12 @@ struct NotebookView: View {
                 case .rename: "重命名"
                 }
             } ?? "-"
-            let lines = ["highlighted=\(highlighted)", "selection=\(selection ?? "-")", "mode=\(viewMode.rawValue)",
+            let lines = ["highlighted=\(highlighted)", "selection=\(selection ?? "-")", "image=\(imagePath ?? "-")", "mode=\(viewMode.rawValue)",
                          "expanded=\(expanded.sorted().joined(separator: ","))", "prompt=\(title)", "currentFolder=\(currentFolder)",
                          "rows=\(FileTree.visibleRows(tree ?? [], expanded: expanded).map { String(repeating: " ", count: $0.depth) + $0.entry.path }.joined(separator: "|"))"]
             try? lines.joined(separator: "\n").write(toFile: words[1], atomically: true, encoding: .utf8)
         case "cancel": prompt = nil
+        case "closeimage": closeImage()
         default: break
         }
     }
@@ -370,12 +389,12 @@ struct NotebookView: View {
         highlighted = path
     }
 
-    /// A file picked in the sidebar: pictures open in the viewer; notes and text on the right to edit,
+    /// A file picked in the sidebar: pictures in the viewer over the right pane; notes and text on the right to edit,
     /// anything else (Office, PDF…) on the right in a Quick Look preview. A reference opens its target.
     private func open(_ path: String) {
         let resolved = NoteIndex.resolveReference(at: root.appendingPathComponent(path), in: root) ?? path
         if NoteAssets.isImage(resolved) {
-            image = root.appendingPathComponent(resolved)
+            imagePath = resolved
         } else {
             show(resolved)
         }
@@ -385,10 +404,18 @@ struct NotebookView: View {
     /// starts from the default setting (or [mode]) on each note; reopening the open note keeps it.
     /// A reference opens the file it points at.
     private func show(_ path: String, mode: ViewMode? = nil) {
+        // Before the early return: picking the note a picture is covering has to uncover it.
+        imagePath = nil
         let resolved = NoteIndex.resolveReference(at: root.appendingPathComponent(path), in: root) ?? path
         if resolved == selection && mode == nil { return }
         selection = resolved
         viewMode = mode ?? notebooks.state.defaultViewMode
+    }
+
+    /// Back to what the picture was covering. A picture picked in the tree took the highlight, which returns to the note.
+    private func closeImage() {
+        if highlighted == imagePath, let selection { highlighted = selection }
+        imagePath = nil
     }
 
     private func isMarkdown(_ path: String) -> Bool {
@@ -467,6 +494,7 @@ struct NotebookView: View {
             notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: old, new: new))
             highlighted = FileTree.moved(highlighted, old: old, new: new)
             selection = selection.map { FileTree.moved($0, old: old, new: new) }
+            imagePath = imagePath.map { FileTree.moved($0, old: old, new: new) }
             Task { await notebooks.refreshUnsynced(notebook) }
             refresh += 1
             return nil
@@ -480,6 +508,7 @@ struct NotebookView: View {
         deleting = nil
         let path = NoteIndex.relativePath(of: url, in: root)
         if selection == path || selection?.hasPrefix(path + "/") == true { selection = nil }
+        if imagePath == path || imagePath?.hasPrefix(path + "/") == true { imagePath = nil }
         notebooks.setExpandedFolders(notebook.id, FileTree.removed(expanded, path: path))
         if highlighted == path || highlighted.hasPrefix(path + "/") { highlighted = FileTree.parent(path) }
         Task {

@@ -310,37 +310,111 @@ struct PlainEditor: View {
     }
 }
 
-/// A picture from the notebook, full size, with zoom (pinch, or the toolbar buttons).
+/// A picture from the notebook, shown in the note pane with its zoom controls. It covers the open note
+/// rather than replacing it, and does not manage the note: the parent keeps that mounted underneath.
 struct ImageViewer: View {
     let file: URL
+    /// Changes when the notebook changed on disk, so the picture follows its file.
+    let revision: Int
     let onClose: () -> Void
-    @State private var scale: CGFloat = 1
+
+    /// 8x is enough to read a screenshot's small print; further only shows pixels.
+    private static let largest: CGFloat = 8
+    private static let smallest: CGFloat = 0.25
+    private static let step: CGFloat = 1.5
+
+    @State private var picture: NSImage?
+    @State private var loaded = false
+    /// nil means "fit the pane", which also follows the window as it resizes.
+    @State private var chosenScale: CGFloat?
+    @State private var pinchStart: CGFloat?
+    @State private var paneSize = CGSize.zero
+    /// Where the keyboard was, to give it back on leaving.
+    @State private var previousResponder: NSResponder?
+
+    /// Never enlarges a small picture past its own size until asked to.
+    private var fitScale: CGFloat {
+        guard let picture, picture.size.width > 0, picture.size.height > 0, paneSize != .zero else { return 1 }
+        return min(1, paneSize.width / picture.size.width, paneSize.height / picture.size.height)
+    }
+
+    private var scale: CGFloat { chosenScale ?? fitScale }
+
+    private func zoomed(_ value: CGFloat) -> CGFloat {
+        // A huge picture fits at less than the usual minimum; it must still be able to get back there.
+        min(Self.largest, max(min(Self.smallest, fitScale), value))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Button(action: onClose) { Label("返回", systemImage: "chevron.left") }
+                    .keyboardShortcut(.cancelAction)
+                    .help("返回（Esc）")
                 Text(file.lastPathComponent).font(.headline).lineLimit(1)
                 Spacer()
-                Button { scale = max(0.25, scale / 1.5) } label: { Image(systemName: "minus.magnifyingglass") }
-                Button { scale = 1 } label: { Text("\(Int(scale * 100))%").monospacedDigit() }
-                Button { scale = min(8, scale * 1.5) } label: { Image(systemName: "plus.magnifyingglass") }
-                Button("完成", action: onClose).keyboardShortcut(.defaultAction)
+                Button { chosenScale = zoomed(scale / Self.step) } label: {
+                    Label("缩小", systemImage: "minus.magnifyingglass").labelStyle(.iconOnly)
+                }
+                .keyboardShortcut("-")
+                .help("缩小（⌘-）")
+                Button { chosenScale = nil } label: { Text("\(Int((scale * 100).rounded()))%").monospacedDigit() }
+                    .keyboardShortcut("0")
+                    .help("适合窗口（⌘0）")
+                Button { chosenScale = zoomed(scale * Self.step) } label: {
+                    Label("放大", systemImage: "plus.magnifyingglass").labelStyle(.iconOnly)
+                }
+                .keyboardShortcut("=")
+                .help("放大（⌘=）")
             }
             .padding(12)
             Divider()
-            ScrollView([.horizontal, .vertical]) {
-                if let image = NSImage(contentsOf: file) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: image.size.width * scale, height: image.size.height * scale)
-                        .gesture(MagnificationGesture().onChanged { scale = min(8, max(0.25, $0)) })
-                } else {
-                    Text("这张图片打不开").foregroundStyle(.secondary).padding(40)
-                }
-            }
+            content
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .task(id: revision) {
+            picture = NSImage(contentsOf: file)
+            loaded = true
+        }
+        .onAppear {
+            // The note underneath is only covered, so without this typing would still edit it unseen.
+            guard let window = NSApp.keyWindow else { return }
+            previousResponder = window.firstResponder
+            window.makeFirstResponder(nil)
+        }
+        .onDisappear {
+            // Back to the note with the cursor where it was. A note closed meanwhile has left the window.
+            if let view = previousResponder as? NSView, let window = view.window { window.makeFirstResponder(view) }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        GeometryReader { pane in
+            ScrollView([.horizontal, .vertical]) {
+                Group {
+                    if let picture {
+                        Image(nsImage: picture)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: picture.size.width * scale, height: picture.size.height * scale)
+                    } else if loaded {
+                        Text("这张图片打不开").foregroundStyle(.secondary).padding(40)
+                    }
+                }
+                // Centered while smaller than the pane; scrolls once larger.
+                .frame(minWidth: pane.size.width, minHeight: pane.size.height)
+            }
+            .gesture(MagnificationGesture()
+                .onChanged { value in
+                    let start = pinchStart ?? scale
+                    pinchStart = start
+                    chosenScale = zoomed(start * value)
+                }
+                .onEnded { _ in pinchStart = nil })
+            .onAppear { paneSize = pane.size }
+            .onChange(of: pane.size) { _, size in paneSize = size }
+        }
     }
 }
 
