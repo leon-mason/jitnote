@@ -127,26 +127,13 @@ struct NotebookView: View {
                         Task { await bridge.flush() }
                         deleting = root.appendingPathComponent(path)
                     },
+                    onSync: sync,
                     addingNotebook: $addingNotebook)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             detail
         }
         .navigationTitle(notebook.name)
-        .toolbar {
-            ToolbarItemGroup {
-                Button { prompt = .newNote(currentFolder) } label: { Label("新建笔记", systemImage: "square.and.pencil") }
-                    .help("新建笔记（⌘N）")
-                if syncing {
-                    ProgressView().controlSize(.small).help("正在同步…")
-                } else {
-                    Button(action: sync) {
-                        Label("同步", systemImage: notebooks.unsynced.contains(notebook.id) ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath")
-                    }
-                    .help(notebooks.unsynced.contains(notebook.id) ? "有未同步的修改（⌘R）" : "同步（⌘R）")
-                }
-            }
-        }
         .task(id: LoadKey(sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
             await notebooks.refreshUnsynced(notebook)
@@ -271,7 +258,7 @@ struct NotebookView: View {
                     }
                 }
         } else {
-            Text(tree?.isEmpty == true ? "点工具栏上的「新建笔记」写第一篇。" : "选一篇笔记")
+            Text(tree?.isEmpty == true ? "点文件列表右上角的「新建笔记」写第一篇。" : "选一篇笔记")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -571,6 +558,7 @@ private struct Sidebar: View {
     let onHistory: (String) -> Void
     let onRename: (String) -> Void
     let onDelete: (String) -> Void
+    let onSync: () -> Void
     @Binding var addingNotebook: Bool
 
     @EnvironmentObject private var notebooks: Notebooks
@@ -580,50 +568,48 @@ private struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Menu {
-                ForEach(notebooks.state.notebooks) { other in
-                    Button { notebooks.setCurrent(other.id) } label: {
-                        if other.id == notebook.id { Label(other.name, systemImage: "checkmark") } else { Text(other.name) }
-                    }
+            // The notebook and its sync sit together: what is synced, how far, and the button that does it.
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 8) {
+                    notebookMenu
+                    Spacer(minLength: 0)
+                    syncButton
                 }
-                Divider()
-                Button("添加笔记本…") { addingNotebook = true }
-                Button("管理笔记本…") { openSettings() }
-                Divider()
-                // For pointing an AI tool at the notebook: its folder is a plain Git folder anyone can work in.
-                Button("打开文件夹") { NSWorkspace.shared.open(notebooks.dir(notebook)) }
-                Button("复制路径") { copyToPasteboard(notebooks.dir(notebook).path) }
-            } label: {
-                Label(notebook.name, systemImage: "books.vertical")
-                    .font(.headline)
-            }
-            .menuStyle(.borderlessButton)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .help("切换笔记本")
-
-            VStack(alignment: .leading, spacing: 6) {
                 SyncStatusLine(notebook: notebook, syncing: notebooks.isSyncing(notebook), unsynced: notebooks.unsynced.contains(notebook.id))
-                HStack {
-                    Text("文件列表")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Menu {
-                        Picker("排序", selection: Binding(get: { notebooks.state.fileSort }, set: { notebooks.setFileSort($0) })) {
-                            ForEach(NoteSort.allCases) { Text($0.label).tag($0) }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        Label("排序", systemImage: "arrow.up.arrow.down")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("排序方式")
-                }
+                    .multilineTextAlignment(.trailing)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            HStack(spacing: 10) {
+                Text("文件列表")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button { onNewNote(FileTree.currentFolder(tree, highlighted: highlighted)) } label: {
+                    Label("新建笔记", systemImage: "square.and.pencil").labelStyle(.iconOnly)
+                }
+                .help("新建笔记（⌘N）")
+                Button { onNewFolder(FileTree.currentFolder(tree, highlighted: highlighted)) } label: {
+                    Label("新建文件夹", systemImage: "folder.badge.plus").labelStyle(.iconOnly)
+                }
+                .help("新建文件夹（⇧⌘N）")
+                Menu {
+                    Picker("排序", selection: Binding(get: { notebooks.state.fileSort }, set: { notebooks.setFileSort($0) })) {
+                        ForEach(NoteSort.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("排序", systemImage: "arrow.up.arrow.down").labelStyle(.iconOnly)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("排序方式")
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
 
             // Drawn by hand rather than with List or OutlineGroup: List(selection:) says nothing when
             // the selected row is tapped again (a folder could not be closed), and OutlineGroup's
@@ -638,16 +624,52 @@ private struct Sidebar: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { highlighted = "" }
+        }
+    }
 
-            Divider()
-            HStack {
-                Button { onNewFolder(FileTree.currentFolder(tree, highlighted: highlighted)) } label: {
-                    Label("新建文件夹", systemImage: "folder.badge.plus")
+    private var notebookMenu: some View {
+        Menu {
+            ForEach(notebooks.state.notebooks) { other in
+                Button { notebooks.setCurrent(other.id) } label: {
+                    if other.id == notebook.id { Label(other.name, systemImage: "checkmark") } else { Text(other.name) }
                 }
-                .buttonStyle(.borderless)
-                Spacer()
             }
-            .padding(10)
+            Divider()
+            Button("添加笔记本…") { addingNotebook = true }
+            Button("管理笔记本…") { openSettings() }
+            Divider()
+            // For pointing an AI tool at the notebook: its folder is a plain Git folder anyone can work in.
+            Button("打开文件夹") { NSWorkspace.shared.open(notebooks.dir(notebook)) }
+            Button("复制路径") { copyToPasteboard(notebooks.dir(notebook).path) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "books.vertical")
+                Text(notebook.name).lineLimit(1).truncationMode(.middle)
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            .font(.title3.weight(.semibold))
+            .contentShape(Rectangle())
+        }
+        // A borderless menu button draws its label at a fixed small size and ignores the font above.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help("切换笔记本")
+    }
+
+    @ViewBuilder
+    private var syncButton: some View {
+        if notebooks.isSyncing(notebook) {
+            ProgressView().controlSize(.small).help("正在同步…")
+        } else {
+            let unsynced = notebooks.unsynced.contains(notebook.id)
+            Button(action: onSync) {
+                Label("同步", systemImage: unsynced ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath")
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+            }
+            .buttonStyle(.borderless)
+            .help(unsynced ? "有未同步的修改（⌘R）" : "同步（⌘R）")
         }
     }
 
