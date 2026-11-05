@@ -26,7 +26,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         surface = CreateSurface();
         EditorHost.Content = surface;
+#if JITNOTE_WEBVIEW2
         if (surface is WebNoteSurface web) web.Shortcut += (key, shift) => DispatchShortcut((int)key, shift);
+#endif
         surface.TextEdited += text =>
         {
             session.SetOpenText(text);
