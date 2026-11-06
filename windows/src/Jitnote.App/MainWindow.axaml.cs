@@ -773,9 +773,19 @@ public partial class MainWindow : Window
         Dialog.Children.Clear();
         foreach (var row in rows) Dialog.Children.Add(row);
         Scrim.IsVisible = true;
+        // The WebView2 editor is a native window, and a native window always paints over the controls
+        // Avalonia draws, the scrim and the dialog included: left showing, it cut the dialog in half.
+        // So the editor hides while a dialog is open. Its own visibility, not EditorHost's, which the
+        // picture viewer owns. Hiding a window that has the keyboard does not move it, so take it back too.
+        surface.ReleaseKeyboard();
+        if (surface is Control editor) editor.IsVisible = false;
     }
 
-    void CloseDialog() => Scrim.IsVisible = false;
+    void CloseDialog()
+    {
+        Scrim.IsVisible = false;
+        if (surface is Control editor) editor.IsVisible = true;
+    }
 
     static Button Act(string text, Action click)
     {
