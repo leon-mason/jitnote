@@ -68,7 +68,7 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 
 Requires Windows 11, 64-bit. Windows 10 and earlier are not supported, and this version has no ARM package.
 
-1. Download `Jitnote-windows-x64-x.y.z.zip` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and extract the whole folder.
+1. Download `Jitnote-windows-x64-x.y.z.zip` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and extract the whole folder. It holds just `Jitnote.exe`, the `editor` folder the editor needs, and a short readme. Keep `editor` next to `Jitnote.exe`.
 2. Double-click `Jitnote.exe`. If Windows says it protected your PC, or that the publisher is unknown: click More info, then Run anyway. The program is not code-signed. This only happens the first time.
 3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree, and the open note. Ctrl+N creates a note, Ctrl+Shift+N creates a folder, Ctrl+R syncs, Ctrl+E switches between editing and preview (including while the cursor is in the editor), and Ctrl+, opens settings.
 4. When a new version is out, the download opens the folder that contains the zip. Quit Jitnote, then replace the current folder with the newly extracted one. Do not overwrite the program while it is still running.

@@ -68,7 +68,7 @@
 
 需要 Windows 11，64 位。不支持 Windows 10 及更早，这一版也没有 ARM 包。
 
-1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-windows-x64-x.y.z.zip`，把整个文件夹解压出来。
+1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-windows-x64-x.y.z.zip`，把整个文件夹解压出来。里面只有 `Jitnote.exe`、编辑器用的 `editor` 文件夹和一份说明，`editor` 要和 `Jitnote.exe` 放在一起。
 2. 双击 `Jitnote.exe`。如果系统提示「Windows 已保护你的电脑」或发布者不明：点「更多信息」，再点「仍要运行」。这个程序没有购买代码签名，只有第一次会这样问。
 3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分两栏：左边是笔记本切换和文件树，右边是正在写的笔记。Ctrl+N 新建笔记，Ctrl+Shift+N 新建文件夹，Ctrl+R 同步，Ctrl+E 在编辑和预览之间切换（光标在编辑器里时同样生效），Ctrl+，打开设置。
 4. 有新版本时会提示更新：下载完会打开压缩包所在的位置。先退出记特，再用新解压出来的文件夹替换现在的。记特还开着的时候不要覆盖它。

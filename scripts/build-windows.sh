@@ -7,7 +7,8 @@
 #       编译并运行 windows/ 里的测试（同步、文件夹、更新包选择）。
 #   scripts/build-windows.sh
 #       打出 windows/build/Jitnote-windows-x64-<版本>.zip。
-#       拿到 Windows 11 上解压，运行里面的 Jitnote.exe。
+#       压缩包里是单个 Jitnote.exe、编辑器文件夹 editor 和 README.txt。
+#       拿到 Windows 11 上解压，运行 Jitnote.exe。
 #       程序没有代码签名，系统会提示发布者不明。
 #
 # 需要 .NET 8 SDK。本机若装在 ~/.dotnet，脚本会自己加上。
@@ -37,12 +38,21 @@ if [ "${1:-}" = "--test" ]; then
 fi
 
 OUT="windows/build/publish"
+# Single file so users see one Jitnote.exe instead of hundreds of DLLs. Native libraries (libgit2, Skia,
+# WebView2Loader) are bundled too and extracted on first run. The editor stays a folder next to the exe:
+# MainWindow loads it from AppContext.BaseDirectory/editor, and content files are not bundled.
+# The release asset stays a .zip because the update check of already-installed versions only picks .zip.
 rm -rf "$OUT"
 dotnet publish windows/src/Jitnote.App/Jitnote.App.csproj \
     -c Release -r win-x64 --self-contained true \
-    -p:PublishSingleFile=false \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:DebugType=none \
     -p:Version="$VERSION" \
     -o "$OUT" --nologo
+
+# The WebView2 package ships API documentation XML that the app never reads; it would only clutter the folder.
+rm -f "$OUT"/*.xml
 
 # UTF-8 BOM so Notepad on Windows shows the Chinese. The file name stays ASCII so the zip does not mangle it.
 printf '\xEF\xBB\xBF' > "$OUT/README.txt"
