@@ -2,10 +2,10 @@
 #
 # 不用 Xcode 构建 Mac 版：直接调用 swiftc，Git 用 Homebrew 的 libgit2（brew install libgit2）。
 #
-#   scripts/build-mac.sh          → mac/build/Jitnote.app，以及发布用的 Jitnote-mac-apple-silicon-<版本>.dmg 和 .zip
+#   scripts/build-mac.sh          → mac/build/Jitnote.app，以及发布用的 Jitnote-mac-apple-silicon-<版本>.dmg
 #   scripts/build-mac.sh --test   → 编译并运行测试
 #   scripts/build-mac.sh --run    → 构建后直接打开
-#   scripts/build-mac.sh --debug  → mac/build/JitnoteDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 zip
+#   scripts/build-mac.sh --debug  → mac/build/JitnoteDebug.app：带测试用遥控（见 mac/Sources/UI/DebugHooks.swift），不打 dmg
 #
 # 编辑器用的是 android/app/src/main/assets/editor/（editor/ 的构建产物），和 Android 完全相同。
 
@@ -119,13 +119,10 @@ ln -s /Applications "$STAGE/应用程序"
 hdiutil create -quiet -volname "记特" -srcfolder "$STAGE" -fs HFS+ -format UDZO "$DMG"
 rm -rf "$STAGE"
 
-# ZIP for the update check of 0.3.0, which only knows ZIPs; can go once nobody runs 0.3.0.
-ZIP="$PACKAGE.zip"
-rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+# No ZIP: it only served the update check of 0.3.0, which knows nothing else, and 0.3.0 is no longer
+# supported (design doc, 检查更新). 0.4.0 and later pick the DMG.
 echo "✓ $APP"
 echo "✓ $DMG"
-echo "✓ $ZIP"
 
 [ "${1:-}" = "--run" ] && open "$APP"
 exit 0
