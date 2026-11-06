@@ -88,6 +88,12 @@ struct NotebookView: View {
     /// The picture covering the note pane, notebook-relative; the open note stays mounted underneath.
     @State private var imagePath: String?
     @State private var toast: Notebooks.SyncMessage?
+    /// The user asked for the heading list. Only a Markdown preview draws it (design.md 「编辑器」).
+    @State private var outlineOpen = false
+    /// Nil while the list is being read; empty when the note has no headings.
+    @State private var outlineHeadings: [OutlineHeading]?
+    /// Bumped when the open note is reloaded from disk, so an open outline reads the new headings.
+    @State private var outlineRevision = 0
 
     /// `newNote` and `newFolder` carry the folder they create in.
     private enum Prompt: Identifiable {
@@ -245,13 +251,20 @@ struct NotebookView: View {
                     }
                 }
         } else if let path = displayedPath, FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
-            NoteDetail(root: root, path: path, readonly: viewMode == .preview, bridge: bridge,
-                       onSaved: { Task { await notebooks.refreshUnsynced(notebook) } },
-                       onClose: {
-                           Task { await notebooks.refreshUnsynced(notebook) }
-                           refresh += 1
-                       },
-                       onOpenImage: { imagePath = $0 })
+            HStack(spacing: 0) {
+                if outlineShown {
+                    NoteOutline(headings: outlineHeadings) { bridge.scrollToHeading($0) }
+                        .task(id: "\(path)#\(refresh)#\(outlineRevision)#\(viewMode.rawValue)") { await loadOutline() }
+                    Divider()
+                }
+                NoteDetail(root: root, path: path, readonly: viewMode == .preview, bridge: bridge,
+                           onSaved: { Task { await notebooks.refreshUnsynced(notebook) } },
+                           onClose: {
+                               Task { await notebooks.refreshUnsynced(notebook) }
+                               refresh += 1
+                           },
+                           onOpenImage: { imagePath = $0 })
+            }
                 .id(path)
                 .toolbar {
                     ToolbarItemGroup {
@@ -264,6 +277,12 @@ struct NotebookView: View {
                             }
                             Button { historyPath = path } label: { Label("历史版本", systemImage: "clock.arrow.circlepath") }
                                 .help("历史版本")
+                            if isMarkdown(path) {
+                                Button(action: toggleOutline) {
+                                    Label("大纲", systemImage: "list.bullet.indent")
+                                }
+                                .help(outlineShown ? "收起大纲" : "大纲")
+                            }
                         }
                     }
                 }
@@ -345,7 +364,10 @@ struct NotebookView: View {
         if !relevant.isEmpty { refresh += 1 }
         if let shown, paths.map(Self.normalized).contains(shown) {
             if FileManager.default.fileExists(atPath: root.appendingPathComponent(displayedPath ?? shown).path) {
-                Task { await bridge.reloadFromDisk() }
+                Task {
+                    await bridge.reloadFromDisk()
+                    outlineRevision += 1
+                }
             } else {
                 // Deleted or moved away: the pane falls back to its empty state.
                 refresh += 1
@@ -420,6 +442,37 @@ struct NotebookView: View {
     }
 
     private func toggleViewMode() { viewMode = viewMode == .preview ? .edit : .preview }
+
+    /// The heading list sits on the left of a Markdown preview only (design.md 「编辑器」).
+    private var outlineShown: Bool {
+        guard outlineOpen, viewMode == .preview, !viewingImage, !syncing, let path = displayedPath else { return false }
+        return isMarkdown(path)
+    }
+
+    /// Opening the outline from the editor switches to preview, so the list is actually there.
+    private func toggleOutline() {
+        if outlineShown {
+            outlineOpen = false
+        } else {
+            outlineOpen = true
+            if viewMode != .preview { viewMode = .preview }
+        }
+    }
+
+    /// The editor reports null until the note has loaded. The first load of the page can take a few seconds.
+    private func loadOutline() async {
+        outlineHeadings = nil
+        // The editor page is large; the first load can take a few seconds (design.md 「编辑器」).
+        for _ in 0..<50 {
+            if Task.isCancelled { return }
+            if let found = await bridge.headings() {
+                if !Task.isCancelled { outlineHeadings = found }
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if !Task.isCancelled { outlineHeadings = await bridge.headings() ?? [] }
+    }
 
     private func sync() {
         Task {
@@ -521,6 +574,47 @@ struct NotebookView: View {
 private struct PathItem: Identifiable {
     let path: String
     var id: String { path }
+}
+
+/// Heading list on the left of a Markdown preview. 220pt fits a short title without covering the note.
+private struct NoteOutline: View {
+    let headings: [OutlineHeading]?
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                if let headings {
+                    if headings.isEmpty {
+                        Text("这篇笔记没有标题")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(headings) { item in
+                            Button { onSelect(item.index) } label: {
+                                Text(item.text.isEmpty ? "（空标题）" : item.text)
+                                    .font(.callout)
+                                    .multilineTextAlignment(.leading)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, CGFloat(max(item.level - 1, 0)) * 12)
+                                    .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } else {
+                    Text("正在读取…")
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: 220)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
 }
 
 private struct NoteDetail: View {

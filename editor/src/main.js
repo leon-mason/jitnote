@@ -4,6 +4,8 @@
 //   host → editor   window.JitnoteEditor.load(markdown, { readonly, baseUrl, notebookUrl })
 //                   window.JitnoteEditor.getMarkdown()  → current Markdown
 //                   window.JitnoteEditor.setReadonly(readonly)  → switch editing / read-only without reloading
+//                   window.JitnoteEditor.headings()  → [{level, text}] in document order, or null before load
+//                   window.JitnoteEditor.scrollToHeading(index)  → scroll the preview; does not edit
 //   editor → host   window.JitnoteHost.onReady()
 //                   window.JitnoteHost.onChange(markdown)   (debounced, only after real edits)
 //                   window.JitnoteHost.resolveFile(path)    → notebook-relative path or "" (sync)
@@ -113,6 +115,40 @@ function applyReadonly() {
 function setReadonly(readonly) {
   wantReadonly = Boolean(readonly)
   applyReadonly()
+}
+
+/**
+ * Headings as shown, in document order. Null until the note has loaded (design.md 「编辑器」).
+ * Reading the document must not count as an edit.
+ */
+function headingEntries() {
+  if (!crepe || !created) return null
+  return crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    const type = headingSchema.type(ctx)
+    const items = []
+    view.state.doc.descendants((node, pos) => {
+      if (node.type !== type) return
+      const dom = view.nodeDOM(pos)
+      items.push({
+        level: node.attrs.level,
+        text: node.textContent,
+        el: dom && dom.nodeType === 1 ? dom : null,
+      })
+    })
+    return items
+  })
+}
+
+function headings() {
+  const items = headingEntries()
+  return items && items.map(({ level, text }) => ({ level, text }))
+}
+
+/** Scroll the preview to a heading from headings(). Does not focus, so it cannot start an edit. */
+function scrollToHeading(index) {
+  const el = headingEntries()?.[index]?.el
+  el?.scrollIntoView({ block: 'start' })
 }
 
 async function load(markdown, options = {}) {
@@ -252,7 +288,7 @@ for (const button of buttons) {
 
 // ------------------------------------------------------------------ host bridge
 
-window.JitnoteEditor = { load, getMarkdown, setReadonly }
+window.JitnoteEditor = { load, getMarkdown, setReadonly, headings, scrollToHeading }
 
 if (host) {
   host.onReady()

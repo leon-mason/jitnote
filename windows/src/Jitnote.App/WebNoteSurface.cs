@@ -19,6 +19,9 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
     CoreWebView2Controller? controller;
     bool readOnly;
     string pending = "";
+    // False from ShowText until that load() has run, so a heading read does not return the previous note.
+    bool headingsReady;
+    int loadGeneration;
 
     public WebNoteSurface(Session session, string editorRoot)
     {
@@ -44,6 +47,8 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
         CurrentText = text;
         this.readOnly = readOnly;
         pending = text;
+        loadGeneration++;
+        headingsReady = false;
         if (session.Current != null) server.SetNotebook(session.FolderOf(session.Current));
         if (controller == null) return;
         _ = Load(text);
@@ -133,6 +138,7 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
     async Task Load(string text)
     {
         if (controller == null) return;
+        var generation = loadGeneration;
         var folder = session.OpenPath == null ? "" : FileTree.Parent(session.OpenPath);
         var script = EditorShim.LoadCall(
             EditorShim.Json(text),
@@ -140,6 +146,9 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
             server.NotebookUrl(folder.Length == 0 ? "" : folder + "/"),
             server.NotebookUrl(""));
         await controller.CoreWebView2.ExecuteScriptAsync(script);
+        // A newer ShowText owns the page. The page's own load() may still be running;
+        // headings() stays null until that finishes, and HeadingsAsync retries.
+        if (generation == loadGeneration) headingsReady = true;
     }
 
     /// <summary>
@@ -162,6 +171,51 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
     }
 
     public event Action<uint, bool>? Shortcut;
+
+    public async Task<IReadOnlyList<OutlineHeading>?> HeadingsAsync()
+    {
+        if (!headingsReady || controller == null) return null;
+        try
+        {
+            // Null until load() has created the editor. An empty array means the note has no headings.
+            var raw = await controller.CoreWebView2.ExecuteScriptAsync(
+                "window.JitnoteEditor && window.JitnoteEditor.headings ? window.JitnoteEditor.headings() : null");
+            return ParseHeadings(raw);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void ScrollToHeading(int index)
+    {
+        if (index < 0 || controller == null) return;
+        _ = controller.CoreWebView2.ExecuteScriptAsync(
+            "window.JitnoteEditor && window.JitnoteEditor.scrollToHeading(" + index + ")");
+    }
+
+    static IReadOnlyList<OutlineHeading>? ParseHeadings(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "null") return null;
+        try
+        {
+            using var document = JsonDocument.Parse(raw);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return null;
+            var list = new List<OutlineHeading>();
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                var level = item.TryGetProperty("level", out var levelValue) ? levelValue.GetInt32() : 1;
+                var text = item.TryGetProperty("text", out var textValue) ? textValue.GetString() ?? "" : "";
+                list.Add(new OutlineHeading(level, text));
+            }
+            return list;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     void Fit()
     {

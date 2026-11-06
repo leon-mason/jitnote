@@ -23,6 +23,24 @@ final class EditorBridge: ObservableObject {
         await controller?.reloadFromDisk()
         await plainReload?()
     }
+
+    /// Headings of the open note, or nil while the editor is still loading. See design.md 「编辑器」.
+    func headings() async -> [OutlineHeading]? {
+        await controller?.headings()
+    }
+
+    /// Scrolls the preview to a heading from [headings]. Does not change the note.
+    func scrollToHeading(_ index: Int) {
+        controller?.scrollToHeading(index)
+    }
+}
+
+/// One heading in the preview outline. [index] is the position headings() returned.
+struct OutlineHeading: Identifiable, Equatable {
+    let index: Int
+    let level: Int
+    let text: String
+    var id: Int { index }
 }
 
 private let scheme = "jitnote"
@@ -95,6 +113,25 @@ final class EditorController: NSObject, WKScriptMessageHandler, WKUIDelegate, WK
         guard readonly != self.readonly else { return }
         self.readonly = readonly
         webView.evaluateJavaScript("window.JitnoteEditor && window.JitnoteEditor.setReadonly(\(readonly))")
+    }
+
+    /// Null until the page has finished loading the note. An empty list means the note has no headings.
+    func headings() async -> [OutlineHeading]? {
+        let value = try? await webView.evaluateJavaScript(
+            "window.JitnoteEditor && window.JitnoteEditor.headings ? window.JitnoteEditor.headings() : null")
+        if value == nil || value is NSNull { return nil }
+        guard let rows = value as? [Any] else { return [] }
+        return rows.enumerated().compactMap { index, row in
+            guard let fields = row as? [String: Any] else { return nil }
+            let level = (fields["level"] as? NSNumber)?.intValue ?? fields["level"] as? Int ?? 1
+            return OutlineHeading(index: index, level: level, text: fields["text"] as? String ?? "")
+        }
+    }
+
+    /// [index] is a heading from headings(), not text, so it cannot be read as script.
+    func scrollToHeading(_ index: Int) {
+        guard index >= 0 else { return }
+        webView.evaluateJavaScript("window.JitnoteEditor && window.JitnoteEditor.scrollToHeading(\(index))")
     }
 
     /// Saves the latest content; called before syncing, when switching notes and when the app goes away.

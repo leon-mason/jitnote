@@ -23,9 +23,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import io.github.leonmason.jitnote.data.NoteAssets
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
+
+/** One heading in the preview outline. [level] is 1–6, matching the note as shown. */
+data class OutlineHeading(val level: Int, val text: String)
 
 private const val HOST = "appassets.androidplatform.net"
 private const val EDITOR_URL = "https://$HOST/assets/editor/index.html"
@@ -43,6 +47,21 @@ class EditorHandle(private val onClose: ((String?) -> Unit)? = null) {
         view.evaluateJavascript(GET_MARKDOWN) { onResult(decode(it)) }
     }
 
+    /**
+     * Headings in document order, or null while the editor is still loading.
+     * An empty list means the note has no headings. Does not change the note (design.md 「编辑器」).
+     */
+    fun headings(onResult: (List<OutlineHeading>?) -> Unit) {
+        val view = webView ?: return onResult(null)
+        view.evaluateJavascript(HEADINGS) { onResult(parseHeadings(it)) }
+    }
+
+    /** Scrolls the preview to a heading from [headings]. The index is a number, not script. */
+    fun scrollToHeading(index: Int) {
+        if (index < 0) return
+        webView?.evaluateJavascript("window.JitnoteEditor && window.JitnoteEditor.scrollToHeading($index)", null)
+    }
+
     internal fun release(view: WebView) {
         if (webView === view) webView = null
         val callback = onClose ?: return view.destroy()
@@ -54,8 +73,20 @@ class EditorHandle(private val onClose: ((String?) -> Unit)? = null) {
 
     private fun decode(raw: String?) = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull()
 
+    private fun parseHeadings(raw: String?): List<OutlineHeading>? {
+        if (raw == null || raw == "null") return null
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                add(OutlineHeading(obj.optInt("level", 1), obj.optString("text")))
+            }
+        }
+    }
+
     private companion object {
         const val GET_MARKDOWN = "window.JitnoteEditor ? window.JitnoteEditor.getMarkdown() : null"
+        const val HEADINGS = "window.JitnoteEditor && window.JitnoteEditor.headings ? window.JitnoteEditor.headings() : null"
     }
 }
 

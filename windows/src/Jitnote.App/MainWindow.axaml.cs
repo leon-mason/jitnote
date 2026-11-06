@@ -19,6 +19,10 @@ public partial class MainWindow : Window
     bool filling = true;
     /// <summary>A picture tapped in the open note, notebook-relative. The note stays open underneath.</summary>
     string? coverImage;
+    /// <summary>The user asked for the heading list. Only a Markdown preview draws it (design.md 「编辑器」).</summary>
+    bool outlineOpen;
+    int outlineGeneration;
+    bool outlineFilled;
 
     public MainWindow() : this(new Session(Session.DefaultDirectory())) { }
 
@@ -46,6 +50,7 @@ public partial class MainWindow : Window
         NewNoteButton.Click += (_, _) => AskName("新建笔记", "笔记名称", name => session.NewNote(name));
         NewFolderButton.Click += (_, _) => AskName("新建文件夹", "文件夹名称", name => session.NewFolder(name));
         ModeButton.Click += (_, _) => ToggleMode();
+        OutlineButton.Click += (_, _) => ToggleOutline();
         HistoryButton.Click += (_, _) => ShowHistory();
         RenameButton.Click += (_, _) =>
         {
@@ -132,6 +137,94 @@ public partial class MainWindow : Window
         ShowOpen();
     }
 
+    /// <summary>Opening the outline while editing switches to preview, so the list is actually there.</summary>
+    void ToggleOutline()
+    {
+        if (Viewer.IsVisible) return;
+        if (OutlinePane.IsVisible) outlineOpen = false;
+        else
+        {
+            outlineOpen = true;
+            if (!preview) preview = true;
+        }
+        ShowOpen();
+    }
+
+    static bool IsMarkdown(string? path) =>
+        path != null && (path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
+
+    void UpdateOutline()
+    {
+        var path = session.OpenPath;
+        var markdown = IsMarkdown(path);
+        OutlineButton.IsVisible = markdown && coverImage == null && !NoteAssets.IsImage(path ?? "");
+        // A picture covers the note pane; the list belongs to the preview, not beside the picture.
+        var show = outlineOpen && preview && markdown && coverImage == null && !session.Syncing
+            && session.OpenText != null && !Viewer.IsVisible;
+        OutlinePane.IsVisible = show;
+        if (!show)
+        {
+            outlineGeneration++;
+            outlineFilled = false;
+            return;
+        }
+        // A refresh that did not reload the note must not wipe the list the user is looking at.
+        if (outlineFilled) return;
+        outlineFilled = true;
+        var generation = ++outlineGeneration;
+        _ = FillOutline(generation);
+    }
+
+    async Task FillOutline(int generation)
+    {
+        OutlineList.Children.Clear();
+        OutlineList.Children.Add(new TextBlock { Text = "正在读取…", Foreground = Brushes.Gray });
+        IReadOnlyList<OutlineHeading>? items = null;
+        // The editor page is large; the first load can take a few seconds (design.md 「编辑器」).
+        for (var attempt = 0; attempt < 50 && generation == outlineGeneration; attempt++)
+        {
+            items = await surface.HeadingsAsync();
+            if (items != null) break;
+            await Task.Delay(100);
+        }
+        var ready = items;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != outlineGeneration) return;
+            OutlineList.Children.Clear();
+            if (ready == null || ready.Count == 0)
+            {
+                OutlineList.Children.Add(new TextBlock
+                {
+                    Text = "这篇笔记没有标题",
+                    Foreground = Brushes.Gray,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                return;
+            }
+            for (var i = 0; i < ready.Count; i++)
+            {
+                var index = i;
+                var item = ready[i];
+                var button = new Button
+                {
+                    Content = new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(item.Text) ? "（空标题）" : item.Text,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = Brushes.Transparent,
+                    Margin = new Avalonia.Thickness(Math.Max(0, item.Level - 1) * 12, 0, 0, 0),
+                };
+                button.Click += (_, _) => surface.ScrollToHeading(index);
+                OutlineList.Children.Add(button);
+            }
+        });
+    }
+
     void Refresh()
     {
         filling = true;
@@ -203,18 +296,21 @@ public partial class MainWindow : Window
         {
             HideViewer();
             surface.ShowMessage("正在同步");
+            UpdateOutline();
             return;
         }
         if (path == null || session.Current == null)
         {
             HideViewer();
             surface.ShowMessage(session.Current == null ? "添加一个笔记本之后，笔记会显示在这里。" : "打开左边的一篇笔记");
+            UpdateOutline();
             return;
         }
         if (coverImage != null)
         {
             // The buttons above act on the open note, which is not what is on screen now.
             ShowViewer(coverImage, covering: true);
+            UpdateOutline();
             return;
         }
         if (NoteAssets.IsImage(path))
@@ -222,6 +318,7 @@ public partial class MainWindow : Window
             // Opened from the tree, this is the open file: rename, delete and history apply to it, as with any other.
             shownText = null;
             ShowViewer(path, covering: false);
+            UpdateOutline();
             return;
         }
         HideViewer();
@@ -229,14 +326,20 @@ public partial class MainWindow : Window
         {
             shownText = null;
             surface.ShowMessage("这个文件只在列表里显示");
+            UpdateOutline();
             return;
         }
         // Reloading on every refresh would put the cursor back at the start while the user is typing.
         if (path == shownPath && preview == shownPreview && session.OpenText == shownText && surface.CurrentText == session.OpenText)
+        {
+            UpdateOutline();
             return;
+        }
         shownText = session.OpenText;
         shownPreview = preview;
         surface.ShowText(session.OpenText, preview);
+        outlineFilled = false;
+        UpdateOutline();
     }
 
     /// <summary>

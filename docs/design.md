@@ -65,6 +65,7 @@
 - 展开状态按笔记本记在 `AppState`，重启后还在；重命名文件夹时一起更新路径，删除时一起清掉，同步后已不存在的路径忽略。高亮只在内存里，不写盘。
 - 排序：名称 A→Z / Z→A、修改时间（新→旧 / 旧→新），全局记住（字段 `fileSort`，默认名称 A→Z）。文件夹永远在文件前面；按修改时间排时文件夹仍按名称，同级文件按修改时间，按分钟比较，同一分钟按名称。
 - 默认打开方式：设置里的「打开笔记时默认为 编辑 / 预览」（`defaultViewMode`，默认编辑，不跨设备同步）。预览是只读显示，不写文件、不弹键盘、待办复选框点不动，点图片仍能看大图、点链接在浏览器打开。Markdown 笔记打开后可随时切换（Mac ⌘E 或按钮，安卓顶栏按钮），只影响当前这次打开，同步或看历史版本回来保持当前模式。**新建的笔记总是编辑模式**；`.txt` 等纯文本总是编辑，不显示切换按钮。
+- Markdown 笔记的右上角有大纲按钮。点一下，预览左侧按层级列出文中的标题，点一条就滚到那里；再点收起。正在编辑时点这个按钮会先切到预览。其他文件没有这个按钮，也不显示大纲。大纲不写入笔记。【用户定】
 - 文件树和打开的笔记跟着磁盘走：别的程序（AI、终端、访达）新建、删除、重命名、修改文件，Mac 的文件树自动更新；打开的笔记被改了，编辑器直接显示新内容，不弹窗，**最后写入的赢**。代价是两边同时改同一篇时，先写的内容可能被盖掉，没提交就找不回来。【用户定】
   - 靠内容区分自己和别人的写入：App 自己保存后文件正好等于它写的内容，不会重新加载。没编辑过的笔记，重新加载也不会写回，逐字节不变。笔记被删除或移走后，不会因为编辑器里还有内容就把它写回来。
   - 以 `.` 开头的名字（`.DS_Store`、`.obsidian`、别的编辑器的临时文件）不引起刷新，除非开着「显示隐藏文件」；`.git` 里面的变化不监听，回到 App 时再检查有没有未同步的内容。
@@ -112,7 +113,7 @@
   - 只有用户真正编辑后才回写文件。
   - `editor/test/roundtrip.test.js` 锁定以上行为（`npm test`）。已知仍会变化的：引用式链接会变成行内链接；未对齐的表格第一次保存会被对齐。
 - 宿主接口（各平台一致）：
-  - 宿主 → 编辑器：`window.JitnoteEditor.load(markdown, { readonly, baseUrl })`、`window.JitnoteEditor.getMarkdown()`、`window.JitnoteEditor.setReadonly(readonly)`（不重新加载，直接在编辑和只读间切换）
+  - 宿主 → 编辑器：`window.JitnoteEditor.load(markdown, { readonly, baseUrl })`、`window.JitnoteEditor.getMarkdown()`、`window.JitnoteEditor.setReadonly(readonly)`（不重新加载，直接在编辑和只读间切换）、`window.JitnoteEditor.headings()`（文档顺序的标题，编辑器还没准备好时是 `null`）、`window.JitnoteEditor.scrollToHeading(index)`（滚到对应标题，不改内容）
   - 编辑器 → 宿主：`window.JitnoteHost.onReady()`、`window.JitnoteHost.onChange(markdown)`（防抖，仅在真实编辑后）
 - 只有用户真正改过才回写文件；只是打开、看完、返回，不会产生任何修改或提交。
 
