@@ -133,7 +133,8 @@ struct NotebookView: View {
         } detail: {
             detail
         }
-        .navigationTitle(notebook.name)
+        .navigationTitle(titlePath.map { ($0 as NSString).lastPathComponent } ?? notebook.name)
+        .navigationSubtitle(titlePath.map { ($0 as NSString).deletingLastPathComponent } ?? "")
         .task(id: LoadKey(sort: notebooks.state.fileSort, showHidden: notebooks.state.showHiddenFiles, refresh: refresh, revision: notebooks.revision, syncing: syncing)) {
             await load()
             await notebooks.refreshUnsynced(notebook)
@@ -206,6 +207,10 @@ struct NotebookView: View {
     }
 
     private var viewingImage: Bool { imagePath != nil && !syncing }
+
+    /// The file the window title names: the picture being viewed, else the open file. The sidebar already
+    /// shows the notebook name, so it is only the fallback when nothing is open (design.md「首页」).
+    private var titlePath: String? { viewingImage ? imagePath : displayedPath }
 
     /// The picture goes over the open file, not in place of it: replacing a note would count as leaving it,
     /// which saves, records a version and loses the scroll position just for looking at a picture.
