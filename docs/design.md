@@ -143,7 +143,7 @@ App 不在应用商店上架，新版本发布在本项目的 [GitHub Releases](
 
 ## Mac 客户端
 
-原生 Swift / SwiftUI，两栏窗口，Git 用 libgit2，同步规则逐条移植自 Android 并共用同一套测试用例。详见 [Mac 客户端设计](superpowers/specs/2026-10-31-mac-client-design.md)。
+原生 Swift / SwiftUI，两栏窗口，Git 用 libgit2，同步规则逐条移植自 Android 并共用同一套测试用例。详见 [Mac 客户端设计](requirements/2026-10-31-mac-client/[spec]mac-client.md)。
 
 ## App 图标
 

@@ -100,7 +100,7 @@ scripts/build-mac.sh --test   # 同步引擎等测试（和 Android 的测试用
 scripts/build-mac.sh --run    # 构建 mac/build/Jitnote.app 并打开
 ```
 
-`--debug` 构建带测试用遥控的版本（见 [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)），用来在没有屏幕录制权限的机器上自动操作和截图；它的令牌存在文件里，不碰钥匙串。设计见 [Mac 客户端设计](docs/superpowers/specs/2026-10-31-mac-client-design.md)。
+`--debug` 构建带测试用遥控的版本（见 [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)），用来在没有屏幕录制权限的机器上自动操作和截图；它的令牌存在文件里，不碰钥匙串。设计见 [Mac 客户端设计](docs/requirements/2026-10-31-mac-client/[spec]mac-client.md)。
 
 ### Windows
 

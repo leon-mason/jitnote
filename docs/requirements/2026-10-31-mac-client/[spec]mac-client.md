@@ -11,7 +11,7 @@
 
 ## 界面
 
-参照 Android 的操作逻辑，改成 Mac 习惯的两栏窗口（`NavigationSplitView`）。最初是三栏（左栏、笔记列表、编辑器），后来按 [向 Obsidian 靠齐的导航和打开方式](2026-11-02-obsidian-navigation-design.md) 去掉了中间的笔记列表，文件树成为唯一的导航：
+参照 Android 的操作逻辑，改成 Mac 习惯的两栏窗口（`NavigationSplitView`）。最初是三栏（左栏、笔记列表、编辑器），后来按 [向 Obsidian 靠齐的导航和打开方式](../2026-11-02-obsidian-navigation/[spec]obsidian-navigation.md) 去掉了中间的笔记列表，文件树成为唯一的导航：
 
 | 位置 | 内容 | 对应 Android |
 | --- | --- | --- |

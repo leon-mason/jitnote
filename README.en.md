@@ -100,7 +100,7 @@ scripts/build-mac.sh --test   # sync engine and other tests (the same cases as A
 scripts/build-mac.sh --run    # builds mac/build/Jitnote.app and opens it
 ```
 
-`--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/superpowers/specs/2026-10-31-mac-client-design.md) (in Chinese).
+`--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/requirements/2026-10-31-mac-client/[spec]mac-client.md) (in Chinese).
 
 ### Windows
 

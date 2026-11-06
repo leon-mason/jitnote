@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin + Compose、Swift + SwiftUI（用 `swiftc` 构建，无 XCTest）、Milkdown Crepe + Vite + Vitest。
 
-**Spec:** `docs/superpowers/specs/2026-11-02-obsidian-navigation-design.md`（执行前必读，文案和交互规则以它为准）
+**Spec:** `docs/requirements/2026-11-02-obsidian-navigation/[spec]obsidian-navigation.md`（执行前必读，文案和交互规则以它为准）
 
 ## Global Constraints
 
@@ -45,7 +45,7 @@
 
 ```bash
 git switch -c obsidian-navigation
-git add docs/superpowers/specs/2026-11-02-obsidian-navigation-design.md docs/superpowers/plans/2026-11-02-obsidian-navigation.md
+git add docs/requirements/2026-11-02-obsidian-navigation/[spec]obsidian-navigation.md docs/requirements/2026-11-02-obsidian-navigation/[plan]obsidian-navigation.md
 git commit -m "Add the design and plan for Obsidian-style navigation"
 ```
 
@@ -467,7 +467,7 @@ git commit -m "Add the default view setting and a preview toggle on the Mac"
 ### Task 8: 文档和整体验证
 
 **Files:**
-- Modify: `README.md:40,61`、`README.en.md:40,61`、`docs/design.md:48-57`（「首页」一节，也去掉「参考印象笔记」的说法，并写入默认打开方式）、`docs/superpowers/specs/2026-10-31-mac-client-design.md:14-19`（改成两栏）
+- Modify: `README.md:40,61`、`README.en.md:40,61`、`docs/design.md:48-57`（「首页」一节，也去掉「参考印象笔记」的说法，并写入默认打开方式）、`docs/requirements/2026-10-31-mac-client/[spec]mac-client.md:14-19`（改成两栏）
 
 - [ ] **Step 1: 更新上面的文档**
 

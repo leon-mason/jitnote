@@ -19,7 +19,7 @@
 | 用户拍板过的决定                       | 在设计文档里搜"【用户定"（不带右括号，才能同时搜到"【用户定：…】"这种带说明的写法）                                   |
 | 还没做什么                             | 设计说明的「暂未做（后续）」一节                                                                                       |
 | 某个需求的规格和任务单                 | `docs/requirements/`                                                                                                 |
-| Mac 客户端和文件树导航当初怎么设计的   | `docs/superpowers/specs/`、`docs/superpowers/plans/`（旧位置，新文档不再放这里）。和设计说明或代码冲突时以后者为准 |
+| Mac 客户端和文件树导航当初怎么设计的   | `docs/requirements/2026-10-31-mac-client/`、`docs/requirements/2026-11-02-obsidian-navigation/`（含当时的实现计划）。和设计说明或代码冲突时以后者为准 |
 | 手动操作怎么做                         | `scripts/` 各脚本的文件头                                                                                            |
 | 某段代码为什么这样写                   | 代码旁的注释；某次改动的原因看 `git log`                                                                             |
 | 调研结论、实验数据                     | `docs/research/`、`docs/spikes/`。都是带日期的快照，可能已过时，和设计文档或代码冲突时以后者为准                   |
