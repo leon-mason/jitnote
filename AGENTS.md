@@ -54,6 +54,7 @@
 
 ## Git 开发规范
 
+- 开始每个需求前先 `git pull` 拉取最新代码；有冲突先尝试自行合并，解决不了再问用户。
 - 开发完成并通过必要验证后，必须清楚说明本次改动并创建 Git commit 然后 push到远端；提交信息须准确概括改动目的，只提交本次任务涉及的文件，不得夹带工作区中已有的无关改动。
 - 用 Conventional Commits（`feat:` `fix:` `docs:` `research:` `test:`），一个 commit 只做一件事。冒号后沿用现有的英文祈使句。`Release x.y.z` 由 `scripts/release.sh` 生成，不受此限。
 - 预计改动文件数不超过 10 个（含 10 个）时，可以直接在 `main` 分支开发。
