@@ -394,6 +394,20 @@ public class HostingAndUpdateTests
         Assert.Equal("https://example.com/w.zip", release.DownloadUrl);
         Assert.Equal(9, release.Size);
         Assert.Equal("· Windows", release.Notes);
+        // The single exe wins over the zip that is still published for 0.7.0 and 0.8.0, whatever the order.
+        var withExe = AppUpdates.ParseWindowsRelease("""
+        {
+          "tag_name": "v0.9.0",
+          "assets": [
+            {"name": "Jitnote-windows-x64-0.9.0.zip", "size": 9, "browser_download_url": "https://example.com/w.zip"},
+            {"name": "Jitnote-mac-apple-silicon-0.9.0.dmg", "size": 2, "browser_download_url": "https://example.com/m.dmg"},
+            {"name": "Jitnote-windows-x64-0.9.0.exe", "size": 8, "browser_download_url": "https://example.com/w.exe"}
+          ]
+        }
+        """)!;
+        Assert.Equal("https://example.com/w.exe", withExe.DownloadUrl);
+        Assert.Equal(8, withExe.Size);
+        Assert.Equal("https://example.com/w.exe", AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.9.0","assets":[{"name":"Jitnote-windows-x64-0.9.0.exe","size":8,"browser_download_url":"https://example.com/w.exe"}]}""")!.DownloadUrl);
         Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","assets":[{"name":"Jitnote-mac-0.7.0.dmg","size":1,"browser_download_url":"https://example.com/m.dmg"}]}"""));
         Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","prerelease":true,"assets":[{"name":"Jitnote-windows-x64-0.7.0.zip","size":1,"browser_download_url":"https://example.com/w.zip"}]}"""));
         Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","draft":true,"assets":[{"name":"Jitnote-windows-x64-0.7.0.zip","size":1,"browser_download_url":"https://example.com/w.zip"}]}"""));

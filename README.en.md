@@ -68,10 +68,10 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 
 Requires Windows 11, 64-bit. Windows 10 and earlier are not supported, and this version has no ARM package.
 
-1. Download `Jitnote-windows-x64-x.y.z.zip` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and extract the whole folder. It holds just `Jitnote.exe`, the `editor` folder the editor needs, and a short readme. Keep `editor` next to `Jitnote.exe`.
-2. Double-click `Jitnote.exe`. If Windows says it protected your PC, or that the publisher is unknown: click More info, then Run anyway. The program is not code-signed. This only happens the first time.
+1. Download `Jitnote-windows-x64-x.y.z.exe` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and put it wherever you like. It is a single file: nothing to extract or install. The `.zip` on the same page only serves the update check of older versions; you do not need it.
+2. Double-click the downloaded exe. If Windows says it protected your PC, or that the publisher is unknown: click More info, then Run anyway. The program is not code-signed. This only happens the first time.
 3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree, and the open note. Ctrl+N creates a note, Ctrl+Shift+N creates a folder, Ctrl+R syncs, Ctrl+E switches between editing and preview (including while the cursor is in the editor), and Ctrl+, opens settings.
-4. When a new version is out, the download opens the folder that contains the zip. Quit Jitnote, then replace the current folder with the newly extracted one. Do not overwrite the program while it is still running.
+4. When a new version is out, the download opens the folder that contains the new exe. Quit Jitnote, then replace the current exe with the new one. Do not overwrite the program while it is still running.
 
 **Where notebooks live**: the default folder is `Jitnote\<repository name>` in your user profile. "更改…" picks your own **empty** folder. `desktop.ini` and `Thumbs.db` do not count as content. The place cannot be changed afterwards. Settings can open the folder in File Explorer or copy the path. Do not put a notebook in OneDrive, Dropbox or iCloud. Removing a notebook deletes the folder when it is in the default place; a folder you picked is left as it is. The cloud copy is never deleted. If the folder cannot be found, you can check again, pick the original folder, or download it again to the same place.
 
@@ -104,11 +104,11 @@ scripts/build-mac.sh --run    # builds mac/build/Jitnote.app and opens it
 
 ### Windows
 
-Requires the .NET 8 SDK. The Windows 11 zip can be built on a Mac or on Linux; a Windows machine is not required to compile it:
+Requires the .NET 8 SDK. The Windows 11 exe can be built on a Mac or on Linux; a Windows machine is not required to compile it:
 
 ```bash
 scripts/build-windows.sh --test   # sync and other tests (the same cases as the Mac suite)
-scripts/build-windows.sh          # windows/build/Jitnote-windows-x64-<version>.zip
+scripts/build-windows.sh          # windows/build/Jitnote-windows-x64-<version>.exe (plus a .zip for older versions' updates)
 ```
 
 When the UI runs on the Mac build machine there is no Credential Manager, so the token is written to a separate `tokens.json` in the app data directory. It is not inside a notebook and not inside the state file. The Windows package uses Credential Manager. The editor opens in Windows 11 WebView2; that layer is not part of a Mac compile, which uses a text box with the same save rule.

@@ -89,7 +89,10 @@ public sealed class WebNoteSurface : NativeControlHost, INoteSurface
 
     async Task Start(IntPtr hwnd)
     {
-        var environment = await CoreWebView2Environment.CreateAsync();
+        // WebView2 defaults its data folder to "<exe>.WebView2" next to the exe. The app is now a single exe
+        // people drop anywhere (Downloads, a read-only folder), so keep that folder with the app's own data.
+        var environment = await CoreWebView2Environment.CreateAsync(
+            null, Path.Combine(Session.DefaultDirectory(), "WebView2"));
         var created = await environment.CreateCoreWebView2ControllerAsync(hwnd);
         controller = created;
         var web = created.CoreWebView2;

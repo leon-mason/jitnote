@@ -68,10 +68,10 @@
 
 需要 Windows 11，64 位。不支持 Windows 10 及更早，这一版也没有 ARM 包。
 
-1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-windows-x64-x.y.z.zip`，把整个文件夹解压出来。里面只有 `Jitnote.exe`、编辑器用的 `editor` 文件夹和一份说明，`editor` 要和 `Jitnote.exe` 放在一起。
-2. 双击 `Jitnote.exe`。如果系统提示「Windows 已保护你的电脑」或发布者不明：点「更多信息」，再点「仍要运行」。这个程序没有购买代码签名，只有第一次会这样问。
+1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-windows-x64-x.y.z.exe`，放在你想放的地方。它是单个文件，不用解压，也不用安装。同一页的 `.zip` 只给旧版记特检查更新用，不用下载。
+2. 双击下载的 exe。如果系统提示「Windows 已保护你的电脑」或发布者不明：点「更多信息」，再点「仍要运行」。这个程序没有购买代码签名，只有第一次会这样问。
 3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分两栏：左边是笔记本切换和文件树，右边是正在写的笔记。Ctrl+N 新建笔记，Ctrl+Shift+N 新建文件夹，Ctrl+R 同步，Ctrl+E 在编辑和预览之间切换（光标在编辑器里时同样生效），Ctrl+，打开设置。
-4. 有新版本时会提示更新：下载完会打开压缩包所在的位置。先退出记特，再用新解压出来的文件夹替换现在的。记特还开着的时候不要覆盖它。
+4. 有新版本时会提示更新：下载完会打开新 exe 所在的位置。先退出记特，再用新的 exe 替换现在的。记特还开着的时候不要覆盖它。
 
 **笔记本放在哪里**：添加笔记本时会显示保存位置，默认是用户主目录下的 `Jitnote\<仓库名>`，点「更改…」可以换成你自己的**空文件夹**。`desktop.ini` 和 `Thumbs.db` 不算有内容。创建后位置不能更改。设置里可以在文件资源管理器中打开，或复制路径。不要把笔记本放进 OneDrive、Dropbox 或 iCloud 这类会自动同步的位置。移除笔记本时，放在默认位置的文件夹会一起删除；你自己选的文件夹原样保留。云端不受影响。找不到文件夹时，可以重新检查、重新选择原来的文件夹，或重新下载到原位置。
 
@@ -104,11 +104,11 @@ scripts/build-mac.sh --run    # 构建 mac/build/Jitnote.app 并打开
 
 ### Windows
 
-需要 .NET 8 SDK。在 Mac 或 Linux 上就能编译并打出 Windows 11 的压缩包，不必有一台 Windows：
+需要 .NET 8 SDK。在 Mac 或 Linux 上就能编译并打出 Windows 11 的 exe，不必有一台 Windows：
 
 ```bash
 scripts/build-windows.sh --test   # 同步等测试（和 Mac 的用例对应）
-scripts/build-windows.sh          # windows/build/Jitnote-windows-x64-<版本>.zip
+scripts/build-windows.sh          # windows/build/Jitnote-windows-x64-<版本>.exe（以及给旧版更新用的 .zip）
 ```
 
 在 Mac 上跑界面时没有 Windows 的凭据管理器，令牌写在应用数据目录里单独的 `tokens.json`，不进笔记本，也不进状态文件。打出来的 Windows 包用凭据管理器。编辑器在 Windows 11 的 WebView2 里打开；在 Mac 上编译时这一层不参与，界面用文本框代替，保存规则相同。

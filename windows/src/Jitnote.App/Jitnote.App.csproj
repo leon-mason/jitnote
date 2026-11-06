@@ -32,9 +32,6 @@
       <Link>editor\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <!-- Single-file publish would otherwise bundle the editor's .js into Jitnote.exe; MainWindow loads
-           editor/index.html from disk next to the exe, so every editor file must stay a real file. -->
-      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 </Project>

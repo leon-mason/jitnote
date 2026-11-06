@@ -751,9 +751,11 @@ public partial class MainWindow : Window
             try
             {
                 var reporter = new Progress<long>(bytes => progress.Text = "已下载 " + (bytes / 1024) + " KB");
-                var zip = await session.DownloadUpdate(release, reporter, cancel.Token);
-                Session.Reveal(zip);
-                progress.Text = "下载好了。退出记特后，用新的文件替换现在的。";
+                var package = await session.DownloadUpdate(release, reporter, cancel.Token);
+                Session.Reveal(package);
+                progress.Text = package.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    ? "下载好了。退出记特后，用新的 Jitnote.exe 替换现在的。"
+                    : "下载好了。退出记特后，用新的文件替换现在的。";
             }
             catch (OperationCanceledException) { /* the user closed the dialog */ }
             catch { progress.Text = "下载没有完成，可能是网络不稳定。"; }

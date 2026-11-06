@@ -31,8 +31,8 @@ public static class AppUpdates
     }
 
     /// <summary>
-    /// The Windows x64 zip from a public release. Mac packages and the Android package are ignored,
-    /// as are drafts and pre-releases.
+    /// The Windows x64 package from a public release: the single exe, or the zip when a release has no exe
+    /// (0.8.0 and earlier). Mac packages and the Android package are ignored, as are drafts and pre-releases.
     /// </summary>
     public static AppRelease? ParseWindowsRelease(string json, string? currentVersion = null)
     {
@@ -48,16 +48,7 @@ public static class AppUpdates
         if (!release.TryGetProperty("tag_name", out var tag) || tag.GetString() is not { } version) return null;
         if (version.StartsWith('v')) version = version[1..];
         if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return null;
-        JsonElement? chosen = null;
-        foreach (var asset in assets.EnumerateArray())
-        {
-            if (!asset.TryGetProperty("name", out var nameElement) || nameElement.GetString() is not { } name) continue;
-            if (!name.Contains("windows", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!name.Contains("x64", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
-            chosen = asset;
-            break;
-        }
+        var chosen = WindowsAsset(assets, ".exe") ?? WindowsAsset(assets, ".zip");
         if (chosen == null) return null;
         if (!chosen.Value.TryGetProperty("browser_download_url", out var urlElement) || urlElement.GetString() is not { } url)
             return null;
@@ -83,8 +74,8 @@ public static class AppUpdates
     }
 
     /// <summary>
-    /// Downloads the zip and returns its path. Does not replace the running program; the caller opens
-    /// the folder so the user can quit and swap the files.
+    /// Downloads the package (exe or zip) and returns its path. Does not replace the running program; the
+    /// caller opens the folder so the user can quit and swap the files.
     /// </summary>
     public static async Task<string> Download(HttpClient http, AppRelease release, IProgress<long>? progress, CancellationToken cancel = default)
     {
@@ -92,7 +83,7 @@ public static class AppUpdates
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         Directory.CreateDirectory(dir);
         var name = Path.GetFileName(new Uri(release.DownloadUrl).AbsolutePath);
-        if (string.IsNullOrEmpty(name)) name = "Jitnote-windows-x64.zip";
+        if (string.IsNullOrEmpty(name)) name = "Jitnote-windows-x64.exe";
         var file = Path.Combine(dir, name);
         using var response = await http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancel);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException("status " + (int)response.StatusCode);
@@ -116,6 +107,18 @@ public static class AppUpdates
         progress?.Report(total);
         if (release.Size > 0 && total != release.Size) throw new IOException("short download");
         return file;
+    }
+
+    static JsonElement? WindowsAsset(JsonElement assets, string suffix)
+    {
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (!asset.TryGetProperty("name", out var nameElement) || nameElement.GetString() is not { } name) continue;
+            if (!name.Contains("windows", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!name.Contains("x64", StringComparison.OrdinalIgnoreCase)) continue;
+            if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return asset;
+        }
+        return null;
     }
 
     static bool Flag(JsonElement element, string name) =>
