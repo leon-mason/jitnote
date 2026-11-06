@@ -342,6 +342,12 @@ private struct UpdateSheet: View {
             while !AppModel.shared.notebooks.syncing.isEmpty {
                 try? await Task.sleep(for: .milliseconds(200))
             }
+            // AppKit silently ignores terminate(_:) while a window has a sheet attached, and this sheet is
+            // one, so without this the app sat on "正在等同步完成…" forever. Ending the sheet clears the
+            // update state through its binding, which is fine: the app is about to go.
+            for window in NSApp.windows {
+                if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            }
             NSApp.terminate(nil)
         }
     }
