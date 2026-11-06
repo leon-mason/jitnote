@@ -248,6 +248,7 @@ struct UpdatePrompts: ViewModifier {
 
 private struct UpdateSheet: View {
     @EnvironmentObject private var updates: AppUpdates
+    @State private var quitting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -292,20 +293,28 @@ private struct UpdateSheet: View {
             case .downloaded(let release, let file):
                 Text("新版本 \(release.version) 已下载好").font(.headline)
                 Text(release.isDiskImage
-                    ? "还差一步：点「打开安装包」，在弹出的窗口里把「记特」拖到「应用程序」，选择「替换」，然后重新打开 App。"
-                    : "还差一步：在打开的访达窗口里，把「记特」拖到「应用程序」文件夹，选择「替换」，然后重新打开 App。")
+                    ? "还差一步：点「退出并安装」，记特会先退出，然后在弹出的窗口里把「记特」拖到「应用程序」，选择「替换」，再重新打开 App。"
+                    : "还差一步：点「退出并安装」，记特会先退出，然后在打开的访达窗口里把「记特」拖到「应用程序」文件夹，选择「替换」，再重新打开 App。")
                     .fixedSize(horizontal: false, vertical: true)
+                if quitting {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("正在等同步完成，完成后自动退出…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 buttons {
-                    Button("以后再说") { updates.dismiss() }.keyboardShortcut(.cancelAction)
-                    if release.isDiskImage {
-                        Button("打开安装包") { NSWorkspace.shared.open(file) }.keyboardShortcut(.defaultAction)
-                    } else {
-                        Button("在访达中显示") {
+                    Button("以后再说") { updates.dismiss() }.keyboardShortcut(.cancelAction).disabled(quitting)
+                    Button("退出并安装") {
+                        if release.isDiskImage {
+                            NSWorkspace.shared.open(file)
+                        } else {
                             NSWorkspace.shared.activateFileViewerSelecting([file])
                             NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications"))
                         }
-                        .keyboardShortcut(.defaultAction)
+                        quitForInstall()
                     }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(quitting)
                 }
             case .failed(let message, let release):
                 Text(release == nil ? "检查更新没有成功" : "更新没有成功").font(.headline)
@@ -321,6 +330,20 @@ private struct UpdateSheet: View {
         }
         .padding(24)
         .frame(width: 420)
+    }
+
+    /// Finder can't replace an app that is still running, so the old copy has to go before the user drags
+    /// the new one in. The open note is saved first, and a running sync is allowed to finish, so quitting
+    /// never cuts a commit or merge in half.
+    private func quitForInstall() {
+        quitting = true
+        Task { @MainActor in
+            await AppModel.shared.saveOpenNote?()
+            while !AppModel.shared.notebooks.syncing.isEmpty {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            NSApp.terminate(nil)
+        }
     }
 
     private func buttons<V: View>(@ViewBuilder _ content: () -> V) -> some View {

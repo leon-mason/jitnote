@@ -161,6 +161,11 @@ struct NotebookView: View {
                 await notebooks.refreshUnsynced(notebook)
             }
         }
+        // Lets the update sheet save the open note before it quits the app to install a new version.
+        .onAppear {
+            let bridge = bridge
+            AppModel.shared.saveOpenNote = { [weak bridge] in await bridge?.flush() }
+        }
         // Another program (an AI, a terminal) may have changed or committed things while this app was behind.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await notebooks.refreshUnsynced(notebook) }

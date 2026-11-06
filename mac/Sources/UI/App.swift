@@ -8,6 +8,8 @@ final class AppModel {
 
     let notebooks: Notebooks
     let updates: AppUpdates
+    /// Saves the note open in the main window, if any; set by the window that owns the editor.
+    var saveOpenNote: (() async -> Void)?
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
