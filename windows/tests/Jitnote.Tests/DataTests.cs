@@ -284,6 +284,17 @@ public class NoteTests : IDisposable
     }
 
     [Fact]
+    public void AnUnreadableNoteIsSkipped()
+    {
+        var book = ImageNotebook();
+        var locked = Path.Combine(book, "坏.md");
+        File.WriteAllText(locked, "![](x.png)");
+        // Held open without sharing, as another program editing it would.
+        using var hold = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+        Assert.Equal(new[] { "c.md", "日志/b.md", "笔记/a.md" }, BrokenImageCheck.Notes(book, "笔记/img/a.png", ""));
+    }
+
+    [Fact]
     public void BrokenImageCheckReadsOnly()
     {
         var book = ImageNotebook();

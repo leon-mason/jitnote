@@ -156,7 +156,7 @@ struct NotebookView: View {
             detail
                 .alert(moveNoticeTitle, isPresented: Binding(get: { moveNotice != nil }, set: { if !$0 { moveNotice = nil } }), presenting: moveNotice) { notice in
                     if case .brokenImages(_, let source, let folder) = notice {
-                        Button("仍然移动") { move(source, to: folder) }
+                        Button("仍然移动") { Task { await move(source, to: folder) } }
                         Button("取消", role: .cancel) {}
                     } else {
                         Button("好") {}
@@ -613,15 +613,17 @@ struct NotebookView: View {
             }
             let root = root
             let broken = await Task.detached { BrokenImageCheck.notes(root: root, moving: source, to: folder) }.value
-            if broken.isEmpty { move(source, to: folder) } else { moveNotice = .brokenImages(count: broken.count, source: source, folder: folder) }
+            if broken.isEmpty { await move(source, to: folder) } else { moveNotice = .brokenImages(count: broken.count, source: source, folder: folder) }
         }
     }
 
     /// Like a rename for the tree: the open note, the highlight and the open folders follow it to the new path.
     /// Nothing is committed; the move is recorded by the next sync.
-    private func move(_ source: String, to folder: String) {
+    private func move(_ source: String, to folder: String) async {
         do {
-            let moved = try NoteFiles.move(root.appendingPathComponent(source), into: root.appendingPathComponent(folder))
+            // On the notebook's own queue, so it can't happen in the middle of a sync that started a moment ago.
+            let from = root.appendingPathComponent(source), into = root.appendingPathComponent(folder)
+            let moved = try await notebooks.run(notebook) { _ in try NoteFiles.move(from, into: into) }
             let new = NoteIndex.relativePath(of: moved, in: root)
             // The target folder opens (it is the parent of the new path), so the item is seen where it landed.
             notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: source, new: new).union(FileTree.ancestors(new)))

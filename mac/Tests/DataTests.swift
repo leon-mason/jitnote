@@ -279,6 +279,12 @@ enum BrokenImageCheckTests {
             try expectEqual(broken(book, "d.md", "工作"), [])
             try expectEqual(broken(book, "root.png", "工作"), [])
         },
+        TestCase("anUnreadableNoteIsSkipped") { root in
+            let book = try notebook(root)
+            try write(book, "坏.md", "![](x.png)")
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: book.appendingPathComponent("坏.md").path)
+            try expectEqual(broken(book, "笔记/img/a.png", ""), ["c.md", "日志/b.md", "笔记/a.md"])
+        },
         TestCase("readsOnly") { root in
             let book = try notebook(root)
             func snapshot() throws -> [String: String] {

@@ -69,6 +69,20 @@ class BrokenImageCheckTest {
     }
 
     @Test
+    fun encodedPathsKeepCharactersOutsideTheBasicPlane() {
+        File(root, "猫 \uD83D\uDC31.png").writeText("x")
+        File(root, "h.md").writeText("![](%E7%8C%AB%20\uD83D\uDC31.png)")
+        assertEquals(listOf("h.md"), broken("h.md", "工作"))
+    }
+
+    @Test
+    fun anUnreadableNoteIsSkipped() {
+        File(root, "坏.md").apply { writeText("![](x.png)") }.setReadable(false)
+        assertEquals(listOf("笔记/a.md"), broken("笔记/a.md", "工作"))
+        assertEquals(listOf("c.md", "日志/b.md", "笔记/a.md"), broken("笔记/img/a.png", ""))
+    }
+
+    @Test
     fun readsOnly() {
         val before = root.walkTopDown().filter { it.isFile }.associate { it.path to it.readText() }
         broken("笔记", "工作")

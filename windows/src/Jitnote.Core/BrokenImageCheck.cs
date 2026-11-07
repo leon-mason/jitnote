@@ -34,10 +34,18 @@ public static class BrokenImageCheck
             .ToList();
         var before = files.ToHashSet(StringComparer.Ordinal);
         var after = files.Select(path => Moved(path, source, target)).ToHashSet(StringComparer.Ordinal);
-        return files.Where(IsNote).Where(note =>
+        // A single note moved on its own is the only one whose pictures can break (notes do not embed notes),
+        // so the rest of a large notebook is not read for it.
+        var onlyThis = IsNote(source) && File.Exists(System.IO.Path.Combine(root, source)) ? source : null;
+        return files.Where(IsNote).Where(note => onlyThis == null || note == onlyThis).Where(note =>
         {
             var newNote = Moved(note, source, target);
-            return References(File.ReadAllText(System.IO.Path.Combine(root, note))).Any(reference =>
+            string text;
+            // A note that cannot be read (open in another program, no permission) is skipped: failing here would stop every move.
+            try { text = File.ReadAllText(System.IO.Path.Combine(root, note)); }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            return References(text).Any(reference =>
                 Resolve(note, reference, before) != null && Resolve(newNote, reference, after) == null);
         }).OrderBy(path => path, StringComparer.Ordinal).ToList();
     }

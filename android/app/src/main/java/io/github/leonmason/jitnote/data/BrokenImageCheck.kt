@@ -32,9 +32,14 @@ object BrokenImageCheck {
             .toList()
         val before = files.toSet()
         val after = files.map { moved(it, source, target) }.toSet()
-        return files.filter(::isNote).filter { note ->
+        // A single note moved on its own is the only one whose pictures can break (notes do not embed notes),
+        // so the rest of a large notebook is not read for it.
+        val onlyThis = source.takeIf { isNote(it) && File(root, it).isFile }
+        return files.filter(::isNote).filter { onlyThis == null || it == onlyThis }.filter { note ->
             val newNote = moved(note, source, target)
-            references(File(root, note).readText()).any { reference ->
+            // A note that cannot be read is skipped: failing here would stop every move in the notebook.
+            val text = runCatching { File(root, note).readText() }.getOrNull() ?: return@filter false
+            references(text).any { reference ->
                 resolve(note, reference, before) != null && resolve(newNote, reference, after) == null
             }
         }.sorted()
@@ -99,8 +104,10 @@ object BrokenImageCheck {
                 bytes.write(hex)
                 i += 3
             } else {
-                bytes.write(path[i].toString().toByteArray())
-                i++
+                // By code point: a character outside the BMP is two chars, and encoding each half alone gives "?".
+                val next = path.offsetByCodePoints(i, 1)
+                bytes.write(path.substring(i, next).toByteArray())
+                i = next
             }
         }
         val decoded = bytes.toString(Charsets.UTF_8.name())

@@ -34,7 +34,11 @@ enum BrokenImageCheck {
         }
         let before = Set(files)
         let after = Set(files.map { moved($0, source, target) })
-        return files.filter(isNote).filter { note in
+        // A single note moved on its own is the only one whose pictures can break (notes do not embed notes),
+        // so the rest of a large notebook is not read for it.
+        let onlyThis = isNote(source) && files.contains(source) ? source : nil
+        return files.filter(isNote).filter { onlyThis == nil || $0 == onlyThis }.filter { note in
+            // A note that cannot be read is skipped: failing here would stop every move in the notebook.
             guard let data = try? Data(contentsOf: root.appendingPathComponent(note)) else { return false }
             let newNote = moved(note, source, target)
             return references(in: String(decoding: data, as: UTF8.self)).contains { reference in
