@@ -42,6 +42,8 @@ public sealed class Session
     public bool Unsynced { get; private set; }
     public IReadOnlyList<FileTree.Row> Rows { get; private set; } = Array.Empty<FileTree.Row>();
     public HashSet<string> Expanded { get; } = new(StringComparer.Ordinal);
+    /// <summary>The item a move just landed on, marked in the tree until another note or folder is picked. Not saved.</summary>
+    public string? Highlighted { get; private set; }
     public Dictionary<string, Side> Choices { get; } = new(StringComparer.Ordinal);
 
     public event Action? Changed;
@@ -260,8 +262,13 @@ public sealed class Session
         Rows = FileTree.VisibleRows(tree, Expanded);
     }
 
+    /// <summary>The full path of a notebook-relative one ("" is the notebook folder itself).</summary>
+    public string FullPath(string relative) =>
+        Path.Combine(FolderOf(NeedNotebook()), relative.Replace('/', Path.DirectorySeparatorChar));
+
     public void ToggleFolder(string path)
     {
+        Highlighted = null;
         if (!Expanded.Add(path)) Expanded.Remove(path);
         RememberExpanded();
         RefreshTree();
@@ -270,6 +277,7 @@ public sealed class Session
 
     public void OpenNote(string path)
     {
+        Highlighted = null;
         SaveOpen();
         var notebook = Current;
         if (notebook == null) return;
@@ -304,10 +312,11 @@ public sealed class Session
 
     public void SetOpenText(string text) => OpenText = text;
 
-    public string NewNote(string raw)
+    /// <summary>Creates a note in <paramref name="folder"/>, or where the open note is when none is given.</summary>
+    public string NewNote(string raw, string? folder = null)
     {
         var notebook = NeedNotebook();
-        var dir = Path.Combine(FolderOf(notebook), FileTree.CurrentFolder(Tree(), OpenPath ?? "").Replace('/', Path.DirectorySeparatorChar));
+        var dir = FullPath(folder ?? FileTree.CurrentFolder(Tree(), OpenPath ?? ""));
         var created = NoteFiles.CreateNote(dir, raw);
         var relative = NoteIndex.Relative(FolderOf(notebook), created);
         foreach (var ancestor in FileTree.Ancestors(relative)) Expanded.Add(ancestor);
@@ -318,10 +327,10 @@ public sealed class Session
         return relative;
     }
 
-    public string NewFolder(string raw)
+    public string NewFolder(string raw, string? folder = null)
     {
         var notebook = NeedNotebook();
-        var dir = Path.Combine(FolderOf(notebook), FileTree.CurrentFolder(Tree(), OpenPath ?? "").Replace('/', Path.DirectorySeparatorChar));
+        var dir = FullPath(folder ?? FileTree.CurrentFolder(Tree(), OpenPath ?? ""));
         var created = NoteFiles.CreateFolder(dir, raw);
         var relative = NoteIndex.Relative(FolderOf(notebook), created);
         foreach (var ancestor in FileTree.Ancestors(relative)) Expanded.Add(ancestor);
@@ -336,17 +345,50 @@ public sealed class Session
     public void RenameItem(string path, string raw)
     {
         var notebook = NeedNotebook();
-        var full = Path.Combine(FolderOf(notebook), path.Replace('/', Path.DirectorySeparatorChar));
-        var renamed = NoteFiles.Rename(full, raw);
+        // Before the file moves: the saver writes to the path it was opened from, and gives up once that file is gone.
+        SaveOpen();
+        var renamed = NoteFiles.Rename(FullPath(path), raw);
         var relative = NoteIndex.Relative(FolderOf(notebook), renamed);
-        var next = new HashSet<string>(FileTree.Renamed(Expanded, path, relative), StringComparer.Ordinal);
-        Expanded.Clear();
-        foreach (var item in next) Expanded.Add(item);
+        FollowMove(path, relative);
         RememberExpanded();
-        if (OpenPath == path) OpenPath = relative;
         RefreshTree();
         Raise();
         TouchUnsynced();
+    }
+
+    /// <summary>
+    /// The tree's open folders and the open note follow an item that changed path (renamed or moved), including
+    /// when the item is a folder and the note is inside it. The note is opened again at the new path:
+    /// its saver would otherwise keep writing to the old one.
+    /// </summary>
+    void FollowMove(string oldPath, string newPath)
+    {
+        var next = new HashSet<string>(FileTree.Renamed(Expanded, oldPath, newPath), StringComparer.Ordinal);
+        Expanded.Clear();
+        foreach (var item in next) Expanded.Add(item);
+        if (OpenPath != null && FileTree.Moved(OpenPath, oldPath, newPath) is var target && target != OpenPath) OpenNote(target);
+    }
+
+    /// <summary>
+    /// Moves an item into <paramref name="folder"/> ("" for the notebook root) and returns its new path.
+    /// Like a rename, nothing is committed: the next sync records it (design.md「首页」).
+    /// </summary>
+    public string MoveItem(string path, string folder)
+    {
+        var notebook = NeedNotebook();
+        if (Syncing) throw new SyncException(SyncErrorKind.Other, "正在同步，请等同步结束再移动。");
+        SaveOpen();
+        var moved = NoteFiles.Move(FullPath(path), FullPath(folder));
+        var relative = NoteIndex.Relative(FolderOf(notebook), moved);
+        FollowMove(path, relative);
+        // The target folder opens (it is above the new path), so the item is seen where it landed.
+        foreach (var ancestor in FileTree.Ancestors(relative)) Expanded.Add(ancestor);
+        RememberExpanded();
+        RefreshTree();
+        Highlighted = relative;
+        Raise();
+        TouchUnsynced();
+        return relative;
     }
 
     public async Task DeleteItem(string path)
@@ -358,15 +400,20 @@ public sealed class Session
             var author = AuthorOf(account);
             await Task.Run(() => Git(notebook).CommitPaths(new[] { path }, author, Device));
         }
-        var full = Path.Combine(FolderOf(notebook), path.Replace('/', Path.DirectorySeparatorChar));
+        var full = FullPath(path);
         if (File.Exists(full)) File.Delete(full);
         else if (System.IO.Directory.Exists(full)) System.IO.Directory.Delete(full, true);
-        if (OpenPath == path)
+        // The open note too when it was inside the deleted folder.
+        if (OpenPath == path || OpenPath?.StartsWith(path + "/", StringComparison.Ordinal) == true)
         {
             OpenPath = null;
             OpenText = null;
             Saver = null;
         }
+        var kept = FileTree.Removed(Expanded, path);
+        Expanded.Clear();
+        foreach (var item in kept) Expanded.Add(item);
+        RememberExpanded();
         RefreshTree();
         Raise();
         TouchUnsynced();

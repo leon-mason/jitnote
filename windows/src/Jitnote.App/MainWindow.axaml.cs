@@ -51,13 +51,12 @@ public partial class MainWindow : Window
         NewFolderButton.Click += (_, _) => AskName("新建文件夹", "文件夹名称", name => session.NewFolder(name));
         ModeButton.Click += (_, _) => ToggleMode();
         OutlineButton.Click += (_, _) => ToggleOutline();
-        HistoryButton.Click += (_, _) => ShowHistory();
+        HistoryButton.Click += (_, _) => ShowHistory(session.OpenPath);
         RenameButton.Click += (_, _) =>
         {
-            if (session.OpenPath != null)
-                AskName("重命名", "新名称", name => session.RenameItem(session.OpenPath, name));
+            if (session.OpenPath is { } open) AskRename(open);
         };
-        DeleteButton.Click += async (_, _) => await ConfirmDelete();
+        DeleteButton.Click += async (_, _) => await ConfirmDelete(session.OpenPath);
         NotebookPicker.SelectionChanged += (_, _) =>
         {
             if (!filling && NotebookPicker.SelectedItem is Notebook notebook) session.Select(notebook);
@@ -268,7 +267,10 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
             Margin = new Avalonia.Thickness(row.Depth * 14, 0, 0, 0),
-            Background = session.OpenPath == row.Entry.Path ? new SolidColorBrush(Color.Parse("#E6E6E6")) : Brushes.Transparent,
+            Background = session.OpenPath == row.Entry.Path || session.Highlighted == row.Entry.Path
+                ? new SolidColorBrush(Color.Parse("#E6E6E6")) : Brushes.Transparent,
+            Tag = row.Entry.Path,
+            ContextMenu = RowMenu(row.Entry),
         };
         button.Click += (_, _) =>
         {
@@ -279,6 +281,33 @@ public partial class MainWindow : Window
         };
         return button;
     }
+
+    /// <summary>The menu a right click on a tree row opens; the same entries as on Mac.</summary>
+    ContextMenu RowMenu(NoteEntry entry)
+    {
+        var items = new List<Control>();
+        if (entry.IsFolder)
+        {
+            items.Add(MenuEntry("新建笔记…", () => AskName("在「" + entry.Name + "」里新建笔记", "笔记名称", name => session.NewNote(name, entry.Path))));
+            items.Add(MenuEntry("新建文件夹…", () => AskName("在「" + entry.Name + "」里新建文件夹", "文件夹名称", name => session.NewFolder(name, entry.Path))));
+            items.Add(new Separator());
+        }
+        if (!entry.IsFolder && NoteIndex.IsEditable(entry.Path)) items.Add(MenuEntry("历史版本…", () => ShowHistory(entry.Path)));
+        items.Add(MenuEntry("重命名…", () => AskRename(entry.Path)));
+        items.Add(MenuEntry("在文件资源管理器中显示", () => Session.Reveal(session.FullPath(entry.Path))));
+        items.Add(new Separator());
+        items.Add(MenuEntry("删除…", () => _ = ConfirmDelete(entry.Path)));
+        return new ContextMenu { ItemsSource = items };
+    }
+
+    static MenuItem MenuEntry(string header, Action click)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => click();
+        return item;
+    }
+
+    void AskRename(string path) => AskName("重命名", "新名称", name => session.RenameItem(path, name));
 
     void ShowOpen()
     {
@@ -407,9 +436,8 @@ public partial class MainWindow : Window
                 })));
     }
 
-    async Task ConfirmDelete()
+    async Task ConfirmDelete(string? path)
     {
-        var path = session.OpenPath;
         if (path == null) return;
         OpenDialog(
             new TextBlock { Text = "删除「" + Path.GetFileName(path) + "」？", FontSize = 18, TextWrapping = TextWrapping.Wrap },
@@ -745,9 +773,8 @@ public partial class MainWindow : Window
         TextWrapping = TextWrapping.Wrap,
     };
 
-    void ShowHistory()
+    void ShowHistory(string? path)
     {
-        var path = session.OpenPath;
         if (path == null || session.Current == null) return;
         IReadOnlyList<Version> versions;
         try { versions = session.History(path); }
