@@ -246,6 +246,22 @@ public static class NoteFiles
         return folder;
     }
 
+    // Moves an item into a folder and returns where it is now. Never replaces anything: a file or folder of the
+    // same name in the folder stops the move (design.md「首页」), and a folder cannot go into itself.
+    public static string Move(string item, string folder)
+    {
+        var target = System.IO.Path.Combine(folder, System.IO.Path.GetFileName(item));
+        var source = System.IO.Path.GetFullPath(item).TrimEnd(System.IO.Path.DirectorySeparatorChar);
+        if (System.IO.Path.GetFullPath(target) == source) return item;
+        var destination = System.IO.Path.GetFullPath(folder).TrimEnd(System.IO.Path.DirectorySeparatorChar);
+        if (Directory.Exists(item) && (destination + System.IO.Path.DirectorySeparatorChar).StartsWith(source + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new SyncException(SyncErrorKind.Other, "不能把文件夹移动到它自己里面");
+        if (File.Exists(target) || Directory.Exists(target)) throw new SyncException(SyncErrorKind.Other, "目标文件夹里已有同名文件");
+        if (Directory.Exists(item)) Directory.Move(item, target);
+        else File.Move(item, target);
+        return target;
+    }
+
     public static string Rename(string file, string raw)
     {
         var name = CleanName(raw) ?? throw new SyncException(SyncErrorKind.Other, "名称不能为空，也不能以 . 开头");
@@ -433,6 +449,11 @@ public static class FileTree
         path == oldPath || path.StartsWith(oldPath + "/", StringComparison.Ordinal)
             ? newPath + path[oldPath.Length..]
             : path;
+
+    // Whether the source (a file or folder) can be moved into the folder ("" for the root): not where it already is,
+    // and a folder not into itself or anything inside it.
+    public static bool CanMove(string source, string folder) =>
+        folder != Parent(source) && folder != source && !folder.StartsWith(source + "/", StringComparison.Ordinal);
 
     public static HashSet<string> Renamed(IReadOnlySet<string> expanded, string oldPath, string newPath) =>
         expanded.Select(path => Moved(path, oldPath, newPath)).ToHashSet(StringComparer.Ordinal);

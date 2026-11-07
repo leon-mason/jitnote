@@ -485,9 +485,7 @@ class NotebookGit(val workTree: File) {
         internal fun describeChanges(added: Set<String>, changed: Set<String>, removed: Set<String>): String? {
             val total = added.size + changed.size + removed.size
             if (total == 0) return null
-            if (added.size == 1 && removed.size == 1 && changed.isEmpty()) {
-                return "重命名：${title(removed.first())} → ${title(added.first())}"
-            }
+            if (changed.isEmpty()) describeMove(added, removed)?.let { return it }
             if (total == 1) {
                 return when {
                     added.isNotEmpty() -> "新建：${title(added.first())}"
@@ -498,6 +496,49 @@ class NotebookGit(val workTree: File) {
             val names = (changed + added + removed).map(::title).distinct()
             val more = if (names.size > 3) " 等" else ""
             return "更新 $total 个文件：${names.take(3).joinToString("、")}$more"
+        }
+
+        /**
+         * "移动：…" or "重命名：…" when the only change is files that disappeared and reappeared elsewhere
+         * (design.md「同步规则」). Without this a file moved to another folder would read as
+         * "重命名：读书笔记 → 读书笔记". A folder that moved as a whole is recognised by its files keeping
+         * their paths relative to it; anything else falls back to the generic summary.
+         */
+        private fun describeMove(added: Set<String>, removed: Set<String>): String? {
+            if (added.size == 1 && removed.size == 1) {
+                val from = removed.first()
+                val to = added.first()
+                val fromDir = from.substringBeforeLast('/', "")
+                val toDir = to.substringBeforeLast('/', "")
+                return when {
+                    fromDir == toDir -> "重命名：${title(from)} → ${title(to)}"
+                    from.substringAfterLast('/') == to.substringAfterLast('/') -> "移动：${title(from)} → ${folderLabel(toDir)}"
+                    else -> "重命名：${title(from)} → ${if (toDir.isEmpty()) "" else "$toDir/"}${title(to)}"
+                }
+            }
+            if (added.size != removed.size || added.isEmpty()) return null
+            val oldDir = commonDir(removed)
+            val newDir = commonDir(added)
+            val oldParts = oldDir.split('/').filter { it.isNotEmpty() }
+            val newParts = newDir.split('/').filter { it.isNotEmpty() }
+            var same = 0
+            while (same < oldParts.size && same < newParts.size &&
+                oldParts[oldParts.size - 1 - same] == newParts[newParts.size - 1 - same]
+            ) same++
+            if (same == 0) return null
+            fun inside(paths: Set<String>, dir: String) = paths.map { it.removePrefix(dir).trimStart('/') }.toSet()
+            if (inside(removed, oldDir) != inside(added, newDir)) return null
+            return "移动：${oldParts[oldParts.size - same]} → ${folderLabel(newParts.take(newParts.size - same).joinToString("/"))}"
+        }
+
+        private fun folderLabel(dir: String) = dir.ifEmpty { "根目录" }
+
+        /** The deepest folder that contains every path ("" for the notebook root). */
+        private fun commonDir(paths: Set<String>): String {
+            val dirs = paths.map { it.substringBeforeLast('/', "").split('/').filter { part -> part.isNotEmpty() } }
+            var common = dirs.first()
+            for (dir in dirs) common = common.zip(dir).takeWhile { (a, b) -> a == b }.map { it.first }
+            return common.joinToString("/")
         }
 
         internal fun title(path: String): String {

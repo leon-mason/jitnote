@@ -52,6 +52,18 @@ class FileTreeTest {
     }
 
     @Test
+    fun canMoveOnlyToAnotherPlaceOutsideItself() {
+        assertEquals(true, FileTree.canMove("a/b.md", ""))
+        assertEquals(true, FileTree.canMove("b.md", "a"))
+        assertEquals(false, FileTree.canMove("a/b.md", "a"))
+        assertEquals(false, FileTree.canMove("b.md", ""))
+        assertEquals(false, FileTree.canMove("a", "a"))
+        assertEquals(false, FileTree.canMove("a", "a/c"))
+        assertEquals(true, FileTree.canMove("a", "ab"))
+        assertEquals(true, FileTree.canMove("a/b", ""))
+    }
+
+    @Test
     fun renameMovesTheFolderAndWhatIsInside() {
         assertEquals(setOf("工作", "工作/2026", "b"), FileTree.renamed(setOf("会议", "会议/2026", "b"), "会议", "工作"))
     }

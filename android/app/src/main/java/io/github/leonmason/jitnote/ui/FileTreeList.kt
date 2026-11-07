@@ -27,11 +27,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,7 +49,9 @@ import java.io.File
 
 /**
  * One row of the file tree, called 文件列表 like Obsidian's file explorer: a file or folder with its
- * full name. The whole row is tappable; long-press for more.
+ * full name. The whole row is tappable. A long press that is let go without moving opens the menu;
+ * a long press that moves the finger drags the row instead (design.md「首页」), reporting where the
+ * finger is, in window coordinates, so the tree can find the row under it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -53,23 +62,67 @@ fun FileTreeRow(
     onClick: () -> Unit,
     onHistory: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit,
     onNewNoteHere: () -> Unit,
     onNewFolderHere: () -> Unit,
+    isDragged: Boolean,
+    isDropTarget: Boolean,
+    onDragStart: () -> Unit,
+    onDragMove: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
     val entry = row.entry
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val tint = if (isHighlighted) colors.onSecondaryContainer else colors.onSurfaceVariant
     val file = File(entry.name)
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // The gesture below is set up once, so it reads the callbacks through these.
+    val dragStart by rememberUpdatedState(onDragStart)
+    val dragMove by rememberUpdatedState(onDragMove)
+    val dragEnd by rememberUpdatedState(onDragEnd)
+    val dragCancel by rememberUpdatedState(onDragCancel)
     Box {
         Row(
             Modifier
                 .fillMaxWidth()
+                .alpha(if (isDragged) 0.4f else 1f)
                 .padding(horizontal = 12.dp, vertical = 1.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(if (isHighlighted) colors.secondaryContainer else Color.Transparent)
-                .combinedClickable(onClick = onClick, onLongClick = { menu = true })
+                .background(
+                    when {
+                        isDropTarget -> colors.primaryContainer
+                        isHighlighted -> colors.secondaryContainer
+                        else -> Color.Transparent
+                    },
+                )
+                .onGloballyPositioned { coordinates = it }
+                // The long press is handled by the gesture below. The empty onLongClick only keeps the finger
+                // lifting after it from counting as a tap, and gives the touch of feedback.
+                .combinedClickable(onClick = onClick, onLongClick = {})
+                .pointerInput(Unit) {
+                    var moved = false
+                    var travelled = Offset.Zero
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            moved = false
+                            travelled = Offset.Zero
+                        },
+                        onDrag = { change, amount ->
+                            travelled += amount
+                            // A finger always wobbles; only a real move turns the press into a drag.
+                            if (!moved && travelled.getDistance() > viewConfiguration.touchSlop) {
+                                moved = true
+                                dragStart()
+                            }
+                            if (moved) coordinates?.let { dragMove(it.localToWindow(change.position)) }
+                        },
+                        onDragEnd = { if (moved) dragEnd() else menu = true },
+                        onDragCancel = { if (moved) dragCancel() },
+                    )
+                }
                 .padding(start = (row.depth * 16).dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -126,6 +179,10 @@ fun FileTreeRow(
             DropdownMenuItem(text = { Text("重命名") }, onClick = {
                 menu = false
                 onRename()
+            })
+            DropdownMenuItem(text = { Text("移动到…") }, onClick = {
+                menu = false
+                onMove()
             })
             DropdownMenuItem(text = { Text("删除") }, onClick = {
                 menu = false

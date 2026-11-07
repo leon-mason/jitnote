@@ -735,8 +735,7 @@ public sealed class NotebookGit
     {
         var total = added.Count + changed.Count + removed.Count;
         if (total == 0) return null;
-        if (added.Count == 1 && removed.Count == 1 && changed.Count == 0)
-            return "重命名：" + Title(removed[0]) + " → " + Title(added[0]);
+        if (changed.Count == 0 && DescribeMove(added, removed) is { } move) return move;
         if (total == 1)
         {
             if (added.Count == 1) return "新建：" + Title(added[0]);
@@ -750,6 +749,52 @@ public sealed class NotebookGit
         }
         var more = names.Count > 3 ? " 等" : "";
         return "更新 " + total + " 个文件：" + string.Join("、", names.Take(3)) + more;
+    }
+
+    // "移动：…" or "重命名：…" when the only change is files that disappeared and reappeared elsewhere
+    // (design.md「同步规则」). Without this a file moved to another folder would read as
+    // "重命名：读书笔记 → 读书笔记". A folder that moved as a whole is recognised by its files keeping
+    // their paths relative to it; anything else falls back to the generic summary.
+    static string? DescribeMove(IReadOnlyList<string> added, IReadOnlyList<string> removed)
+    {
+        if (added.Count == 1 && removed.Count == 1)
+        {
+            var from = removed[0];
+            var to = added[0];
+            var fromDir = DirectoryOf(from);
+            var toDir = DirectoryOf(to);
+            if (fromDir == toDir) return "重命名：" + Title(from) + " → " + Title(to);
+            if (from.Split('/').Last() == to.Split('/').Last()) return "移动：" + Title(from) + " → " + FolderLabel(toDir);
+            return "重命名：" + Title(from) + " → " + (toDir.Length == 0 ? "" : toDir + "/") + Title(to);
+        }
+        if (added.Count != removed.Count || added.Count == 0) return null;
+        var oldDir = CommonDirectory(removed);
+        var newDir = CommonDirectory(added);
+        var same = 0;
+        while (same < oldDir.Length && same < newDir.Length && oldDir[^(same + 1)] == newDir[^(same + 1)]) same++;
+        if (same == 0) return null;
+        static HashSet<string> Inside(IReadOnlyList<string> paths, string[] dir) =>
+            paths.Select(path => string.Join("/", path.Split('/').Skip(dir.Length))).ToHashSet(StringComparer.Ordinal);
+        if (!Inside(removed, oldDir).SetEquals(Inside(added, newDir))) return null;
+        return "移动：" + oldDir[oldDir.Length - same] + " → " + FolderLabel(string.Join("/", newDir.Take(newDir.Length - same)));
+    }
+
+    static string DirectoryOf(string path) => string.Join("/", path.Split('/').SkipLast(1));
+
+    static string FolderLabel(string dir) => dir.Length == 0 ? "根目录" : dir;
+
+    // The deepest folder that contains every path (empty for the notebook root), as path components.
+    static string[] CommonDirectory(IReadOnlyList<string> paths)
+    {
+        var common = paths[0].Split('/').SkipLast(1).ToArray();
+        foreach (var path in paths)
+        {
+            var dir = path.Split('/').SkipLast(1).ToArray();
+            var n = 0;
+            while (n < common.Length && n < dir.Length && common[n] == dir[n]) n++;
+            common = common.Take(n).ToArray();
+        }
+        return common;
     }
 
     public static string Title(string path)

@@ -31,6 +31,20 @@
     <string>__MIN_MACOS__</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- A row dragged inside the file tree; never leaves the app (see TreeDrop in MainWindow.swift). -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>io.github.leonmason.jitnote.tree-item</string>
+            <key>UTTypeDescription</key>
+            <string>Jitnote file tree item</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>Apache License 2.0</string>
 </dict>

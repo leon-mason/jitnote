@@ -610,6 +610,27 @@ enum NotebookGitTests {
             try expectEqual(NotebookGit.describeChanges(added: [], changed: ["x/b.md"], removed: []), "编辑：b")
             try expectEqual(NotebookGit.describeChanges(added: [], changed: [], removed: ["c.txt"]), "删除：c.txt")
             try expectEqual(NotebookGit.describeChanges(added: ["b.md"], changed: [], removed: ["a.md"]), "重命名：a → b")
+            try expectEqual(NotebookGit.describeChanges(added: ["x/b.md"], changed: [], removed: ["x/a.md"]), "重命名：a → b")
+            try expectEqual(NotebookGit.describeChanges(added: ["工作/项目/读书笔记.md"], changed: [], removed: ["读书笔记.md"]), "移动：读书笔记 → 工作/项目")
+            try expectEqual(NotebookGit.describeChanges(added: ["读书笔记.md"], changed: [], removed: ["工作/读书笔记.md"]), "移动：读书笔记 → 根目录")
+            try expectEqual(NotebookGit.describeChanges(added: ["工作/b.md"], changed: [], removed: ["a.md"]), "重命名：a → 工作/b")
+            try expectEqual(NotebookGit.describeChanges(added: ["b.md"], changed: [], removed: ["x/a.md"]), "重命名：a → b")
+            try expectEqual(
+                NotebookGit.describeChanges(
+                    added: ["工作/会议记录/a.md", "工作/会议记录/img/b.png"], changed: [],
+                    removed: ["会议记录/a.md", "会议记录/img/b.png"]),
+                "移动：会议记录 → 工作"
+            )
+            try expectEqual(
+                NotebookGit.describeChanges(
+                    added: ["会议记录/a.md", "会议记录/b.md"], changed: [],
+                    removed: ["工作/会议记录/a.md", "工作/会议记录/b.md"]),
+                "移动：会议记录 → 根目录"
+            )
+            // A folder renamed in place, files moved out of a folder one by one, or a move with edits: not a folder move.
+            try expectEqual(NotebookGit.describeChanges(added: ["y/a.md", "y/b.md"], changed: [], removed: ["x/a.md", "x/b.md"]), "更新 4 个文件：a、b")
+            try expectEqual(NotebookGit.describeChanges(added: ["工作/a.md", "工作/b.md"], changed: [], removed: ["a.md", "b.md"]), "更新 4 个文件：a、b")
+            try expectEqual(NotebookGit.describeChanges(added: ["新/a.md"], changed: ["c.md"], removed: ["旧/a.md"]), "更新 3 个文件：c、a")
             try expectEqual(
                 NotebookGit.describeChanges(added: ["c.md", "d.md"], changed: ["a.md", "b.md"], removed: []),
                 "更新 4 个文件：a、b、c 等"

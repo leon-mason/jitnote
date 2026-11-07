@@ -26,9 +26,12 @@
             <Button x:Name="NewFolderButton" Content="新建文件夹" />
           </StackPanel>
         </StackPanel>
-        <ScrollViewer>
-          <StackPanel x:Name="Tree" Spacing="1" />
-        </ScrollViewer>
+        <!-- Transparent so empty space below the rows takes a drop; the frame lights up when that means the notebook root. -->
+        <Border x:Name="TreeFrame" BorderThickness="2" BorderBrush="Transparent" CornerRadius="4">
+          <ScrollViewer x:Name="TreeScroll" Background="Transparent">
+            <StackPanel x:Name="Tree" Spacing="1" />
+          </ScrollViewer>
+        </Border>
       </DockPanel>
       <Grid Grid.Column="1" Margin="0,12,12,12">
         <DockPanel>
