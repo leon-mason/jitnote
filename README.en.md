@@ -16,7 +16,7 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 
 > **Status**: early version. There is an Android client, a Mac client and a Windows 11 client. The UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
 >
-> If GitHub is slow where you are, there is a mirror on Gitee: [gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote). The code is synced automatically; the installers are still only on GitHub Releases for now.
+> If GitHub is slow where you are, there is a mirror on Gitee: [gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote). The code is synced automatically. From 0.11.0 on, the installers are also published on [Gitee releases](https://gitee.com/shitoupapa/jitnote/releases), which keeps the latest 5 versions.
 
 ## Repository layout
 
@@ -32,7 +32,7 @@ Future clients such as iOS will live in this repository too, reuse `editor/`, an
 
 ## Usage (Android)
 
-Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and install it.
+Requires Android 8.0 or later. Download the latest `jitnote-x.y.z.apk` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) (or [Gitee releases](https://gitee.com/shitoupapa/jitnote/releases) in China) and install it.
 
 1. Open the app, tap "连接云端账号" (Connect cloud account), follow the on-screen steps to create a token on Gitee or GitHub, and paste it in.
 2. Tap "添加笔记本 → 新建" (Add notebook → New) and give it a name. The app creates a **private** repository in your account.
@@ -59,7 +59,7 @@ When a new version is out, the app offers to update when you open it (it checks 
 
 Requires a Mac with Apple silicon and a recent macOS (currently the same version as the build machine; on an older system macOS says the app can't be opened).
 
-1. Download `Jitnote-mac-apple-silicon-x.y.z.dmg` from [Releases](https://github.com/leon-mason/jitnote/releases/latest), open it, and drag "记特" onto Applications in the window that appears.
+1. Download `Jitnote-mac-apple-silicon-x.y.z.dmg` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) (or [Gitee releases](https://gitee.com/shitoupapa/jitnote/releases) in China), open it, and drag "记特" onto Applications in the window that appears.
 2. The first time: in Applications, **right-click it → Open**, then click Open. It has no Apple developer signature, so a plain double-click is blocked; this is only needed once.
 3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree (click a folder to expand or collapse it, a file to open it), and the open note. ⌘N creates a note, ⌘R syncs, ⌘E switches between editing and preview (the default is set under Settings → 通用).
 4. When a new version is out, the app offers to download it; click "退出并安装" (Quit and install): the app quits and opens the installer; drag the new app onto Applications, as when installing, choosing Replace. On the first sync after an update, macOS may ask whether the app may use the token in your keychain — click "Always Allow".
@@ -70,7 +70,7 @@ Requires a Mac with Apple silicon and a recent macOS (currently the same version
 
 Requires Windows 11, 64-bit. Windows 10 and earlier are not supported, and this version has no ARM package.
 
-1. Download `Jitnote-windows-x64-x.y.z.exe` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) and put it wherever you like. It is a single file: nothing to extract or install. The `.zip` on the same page only serves the update check of older versions; you do not need it.
+1. Download `Jitnote-windows-x64-x.y.z.exe` from [Releases](https://github.com/leon-mason/jitnote/releases/latest) (or [Gitee releases](https://gitee.com/shitoupapa/jitnote/releases) in China) and put it wherever you like. It is a single file: nothing to extract or install. The `.zip` on the same page only serves the update check of older versions; you do not need it.
 2. Double-click the downloaded exe. If Windows says it protected your PC, or that the publisher is unknown: click More info, then Run anyway. The program is not code-signed. This only happens the first time.
 3. Connecting an account and adding notebooks work as on Android. The window has two columns: the notebook switcher and the file tree, and the open note. Ctrl+N creates a note, Ctrl+Shift+N creates a folder, Ctrl+R syncs, Ctrl+E switches between editing and preview (including while the cursor is in the editor), and Ctrl+, opens settings.
 4. When a new version is out, the download opens the folder that contains the new exe. Quit Jitnote, then replace the current exe with the new one. Do not overwrite the program while it is still running.
@@ -135,9 +135,28 @@ On `main`, with everything committed and pushed, run:
 scripts/release.sh
 ```
 
-The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, pushes, and waits while GitHub Actions tests, signs and publishes the APK, the Mac app and the Windows 11 package in one [Release](https://github.com/leon-mason/jitnote/releases). Already published versions are not rebuilt with a Windows package. The app is not listed in a store.
+The script opens an editor for the update notes (the app shows them in its update prompt; the commits since the last release are listed for reference). After you confirm, it:
 
-- `scripts/release.sh -n` previews the version and commits without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation.
+1. Bumps the minor version of `appVersion` in [`android/app/build.gradle.kts`](android/app/build.gradle.kts) (e.g. `0.2.0 → 0.3.0`), commits, tags, and pushes to GitHub and Gitee.
+2. Waits while GitHub Actions tests, signs and builds the APK, the Mac app and the Windows 11 package into a **draft** [Release](https://github.com/leon-mason/jitnote/releases). Apps can't see drafts.
+3. Downloads the APK, DMG and exe and uploads them to [Gitee releases](https://gitee.com/shitoupapa/jitnote/releases).
+4. Writes `latest.json` (version, notes, and each installer's size, SHA-256 and download links on both sites) and uploads it to both.
+5. Publishes the GitHub draft. Only now do installed apps offer the update.
+6. Deletes Gitee releases older than the latest 5: Gitee allows 1 GB of attachments per repository. GitHub keeps every version.
+
+If any installer fails to upload, the whole release stops: the GitHub release stays a draft, the Gitee release created this time is deleted, and no app offers the version. Once fixed, run `scripts/release.sh -p vX.Y.Z` to redo steps 3 onward. Already published versions are not rebuilt with a Windows package. The app is not listed in a store.
+
+The release computer needs the following. The script checks them before tagging, and if one is missing it stops and says how to fix it:
+
+- `gh` signed in to GitHub (`gh auth login`).
+- `scripts/setup-gitee-mirror.sh` run once, so it can push to Gitee over SSH.
+- A Gitee personal token (with `projects`) in the login keychain. Create one under [Gitee personal tokens](https://gitee.com/profile/personal_access_tokens), then run the line below and paste it when asked. The token stays on that computer and never goes into a repository.
+
+  ```bash
+  security add-generic-password -U -a shitoupapa -s jitnote-release-gitee -w
+  ```
+
+- `scripts/release.sh -n` previews the version and commits and checks the above without changing anything; `-m "notes"` gives the notes directly; `-y` skips the confirmation; `-p vX.Y.Z` runs steps 3 to 6 only.
 - **Bumping the major version**: raise `MAJOR` at the top of `scripts/release.sh` (e.g. to `2`) and commit. The next release is `2.0.0`, then `2.1.0`, `2.2.0`, …
 - The script refuses to release when not on `main`, with uncommitted changes, when out of sync with GitHub, with no commits since the last release, or when `editor/` changed without a fresh `npm run build`.
 

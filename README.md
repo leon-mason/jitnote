@@ -16,7 +16,7 @@
 
 > **项目状态**：早期版本，有 Android 客户端、Mac 客户端和 Windows 11 客户端。欢迎试用和反馈，重要笔记请先在电脑上留一份备份。
 >
-> 国内访问 GitHub 慢，可以看 Gitee 镜像：[gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote)。代码自动同步，安装包目前仍只在 GitHub Releases。
+> 国内访问 GitHub 慢，可以看 Gitee 镜像：[gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote)。代码自动同步；从 0.11.0 起，安装包也发布在 [Gitee 发行版](https://gitee.com/shitoupapa/jitnote/releases)，只保留最近 5 个版本。
 
 ## 仓库结构
 
@@ -32,7 +32,7 @@
 
 ## 使用方法（Android）
 
-支持 Android 8.0 及以上。在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载最新的 `jitnote-x.y.z.apk` 安装。
+支持 Android 8.0 及以上。在 [Releases](https://github.com/leon-mason/jitnote/releases/latest)（国内可以用 [Gitee 发行版](https://gitee.com/shitoupapa/jitnote/releases)）下载最新的 `jitnote-x.y.z.apk` 安装。
 
 1. 打开 App，点「连接云端账号」，按页面上的步骤在 Gitee（推荐）或 GitHub 生成一个令牌，粘贴进来。
 2. 点「添加笔记本 → 新建」，起个名字。App 会在你的账号里建一个**私有**仓库。
@@ -59,7 +59,7 @@
 
 需要 Apple 芯片的 Mac，以及较新的 macOS（目前和打包用的系统版本一致；系统太旧时会直接提示无法打开）。
 
-1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-mac-apple-silicon-x.y.z.dmg`，双击打开，在弹出的窗口里把「记特」拖到「应用程序」。
+1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest)（国内可以用 [Gitee 发行版](https://gitee.com/shitoupapa/jitnote/releases)）下载 `Jitnote-mac-apple-silicon-x.y.z.dmg`，双击打开，在弹出的窗口里把「记特」拖到「应用程序」。
 2. 第一次打开：在「应用程序」里**右键点它 → 打开**，再点「打开」。因为没有苹果开发者签名，直接双击会被系统拦下，只有第一次需要这样做。
 3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分两栏：左边是笔记本切换和文件树（点文件夹展开或收起，点文件打开），右边是正在写的笔记。⌘N 新建笔记，⌘R 同步，⌘E 在编辑和预览之间切换（默认打开方式在「设置 → 通用」里选）。
 4. 有新版本时会提示更新：下载好后点「退出并安装」，记特会自动退出并打开安装包，和第一次安装一样把新版拖到「应用程序」，选择「替换」即可。更新后第一次同步，系统可能询问是否允许访问钥匙串里的令牌，点「始终允许」。
@@ -70,7 +70,7 @@
 
 需要 Windows 11，64 位。不支持 Windows 10 及更早，这一版也没有 ARM 包。
 
-1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest) 下载 `Jitnote-windows-x64-x.y.z.exe`，放在你想放的地方。它是单个文件，不用解压，也不用安装。同一页的 `.zip` 只给旧版记特检查更新用，不用下载。
+1. 在 [Releases](https://github.com/leon-mason/jitnote/releases/latest)（国内可以用 [Gitee 发行版](https://gitee.com/shitoupapa/jitnote/releases)）下载 `Jitnote-windows-x64-x.y.z.exe`，放在你想放的地方。它是单个文件，不用解压，也不用安装。同一页的 `.zip` 只给旧版记特检查更新用，不用下载。
 2. 双击下载的 exe。如果系统提示「Windows 已保护你的电脑」或发布者不明：点「更多信息」，再点「仍要运行」。这个程序没有购买代码签名，只有第一次会这样问。
 3. 连接账号、添加笔记本的步骤和 Android 一样。窗口分两栏：左边是笔记本切换和文件树，右边是正在写的笔记。Ctrl+N 新建笔记，Ctrl+Shift+N 新建文件夹，Ctrl+R 同步，Ctrl+E 在编辑和预览之间切换（光标在编辑器里时同样生效），Ctrl+，打开设置。
 4. 有新版本时会提示更新：下载完会打开新 exe 所在的位置。先退出记特，再用新的 exe 替换现在的。记特还开着的时候不要覆盖它。
@@ -135,9 +135,28 @@ npm run build   # 输出到 android/app/src/main/assets/editor/
 scripts/release.sh
 ```
 
-脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送，并等 GitHub Actions 测试、签名、打包 APK、Mac 版和 Windows 11 包、在同一次 [Releases](https://github.com/leon-mason/jitnote/releases) 发布完成。已经发出去的旧版本不会补 Windows 包。不上架应用商店。
+脚本会打开编辑器让你写更新内容（App 的更新提示里显示的就是这段话，编辑器里附了上次发版以来的提交供参考），确认后自动：
 
-- `scripts/release.sh -n` 只预览版本号和提交，不做改动；`-m "更新内容"` 直接给出更新内容；`-y` 跳过确认。
+1. 把 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 里的 `appVersion` 加一个小版本（如 `0.2.0 → 0.3.0`）、提交、打标签、推送到 GitHub 和 Gitee。
+2. 等 GitHub Actions 测试、签名、打包 APK、Mac 版和 Windows 11 包，放进 [Releases](https://github.com/leon-mason/jitnote/releases) 里的一个**草稿**。草稿对 App 不可见。
+3. 把 APK、DMG 和 exe 下载下来，传到 [Gitee 发行版](https://gitee.com/shitoupapa/jitnote/releases)。
+4. 生成 `latest.json`（版本号、更新说明，以及每个安装包的大小、SHA-256 和两边的下载地址），传到两边。
+5. 公开 GitHub 上的草稿，已安装的 App 这时才会提示更新。
+6. 删掉 Gitee 上最近 5 个以外的旧发行版：Gitee 每个仓库的附件总共只能放 1G。GitHub 上保留全部版本。
+
+任何一个安装包没传上去，就整次停下：GitHub 上留着草稿，Gitee 上这次建的发行版删掉，哪边都不会提示这个版本。修好后运行 `scripts/release.sh -p vX.Y.Z`，从第 3 步重新来。已经发出去的旧版本不会补 Windows 包。不上架应用商店。
+
+发版的电脑要准备好这些，脚本在打标签之前会检查，缺了就停下并说明怎么补：
+
+- `gh` 已登录 GitHub（`gh auth login`）。
+- 运行过 `scripts/setup-gitee-mirror.sh`，能用 SSH 推到 Gitee。
+- 登录钥匙串里存了 Gitee 私人令牌（勾选 `projects`）。在 [Gitee 私人令牌](https://gitee.com/profile/personal_access_tokens) 生成后运行下面这条，按提示粘贴。令牌只在这台电脑上，不进任何仓库。
+
+  ```bash
+  security add-generic-password -U -a shitoupapa -s jitnote-release-gitee -w
+  ```
+
+- `scripts/release.sh -n` 只预览版本号和提交，并检查上面这些，不做改动；`-m "更新内容"` 直接给出更新内容；`-y` 跳过确认；`-p vX.Y.Z` 只做第 3～6 步。
 - **升级大版本**：把 `scripts/release.sh` 开头的 `MAJOR` 改大（如 `2`）并提交，下次发版就是 `2.0.0`，之后是 `2.1.0`、`2.2.0`……
 - 脚本会拒绝这些情况：不在 `main`、有没提交的改动、和 GitHub 不一致、上次发版后没有新提交、改了 `editor/` 却没重新 `npm run build`。
 

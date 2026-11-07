@@ -1,6 +1,9 @@
-# Pushing a tag like v0.2.0 builds the signed APK, the Mac app and the Windows 11 package,
-# and publishes them as one GitHub Release. Already-released tags are not rebuilt for Windows.
+# Pushing a tag like v0.2.0 builds the signed APK, the Mac app and the Windows 11 package
+# into one draft GitHub Release. Already-released tags are not rebuilt for Windows.
+# The release stays a draft: scripts/release.sh then copies the packages to Gitee, adds latest.json
+# to both and only then publishes it, so no app sees a version before all its packages are up.
 # The apps' update checks read the latest release, and show the tag message as the update notes.
+# Nothing here talks to Gitee: GitHub's runners reach gitee.com too unreliably.
 name: Release
 
 on:
@@ -47,13 +50,15 @@ jobs:
           ./gradlew :app:testDebugUnitTest :app:assembleRelease
           rm "$RELEASE_KEYSTORE"
 
-      - name: Publish the release
+      # A draft is invisible to the apps' update checks (releases/latest skips drafts), so apps that
+      # only know GitHub do not offer this version while the Mac and Windows packages are still building.
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           apk="jitnote-$VERSION.apk"
           cp android/app/build/outputs/apk/release/app-release.apk "$apk"
-          gh release create "$GITHUB_REF_NAME" "$apk" --verify-tag --title "$VERSION" --notes-from-tag
+          gh release create "$GITHUB_REF_NAME" "$apk" --draft --verify-tag --title "$VERSION" --notes-from-tag
 
   mac:
     needs: release
