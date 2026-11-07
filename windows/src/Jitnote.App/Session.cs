@@ -714,6 +714,9 @@ public sealed class Session
         OpenText = disk;
     }
 
+    /// <summary>Every visible file and folder, for the picker behind "移动到…".</summary>
+    public IReadOnlyList<NoteEntry> FolderTree() => Tree();
+
     IReadOnlyList<NoteEntry> Tree() =>
         Current == null ? Array.Empty<NoteEntry>() : NoteIndex.Tree(FolderOf(Current), State.FileSort, State.ShowHiddenFiles);
 

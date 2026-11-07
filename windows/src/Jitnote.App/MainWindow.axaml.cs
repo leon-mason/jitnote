@@ -23,6 +23,20 @@ public partial class MainWindow : Window
     bool outlineOpen;
     int outlineGeneration;
     bool outlineFilled;
+    /// <summary>The kind of data a dragged tree row carries; it never leaves this window.</summary>
+    const string DragFormat = "jitnote-tree-item";
+    /// <summary>Dragging near the top or bottom edge of the list scrolls it; the strip that counts, in pixels.</summary>
+    const double ScrollEdge = 28;
+    /// <summary>A dragged row opens a closed folder after resting on it this long (design.md「首页」).</summary>
+    static readonly TimeSpan HoverOpenDelay = TimeSpan.FromSeconds(1);
+    /// <summary>Path of the row being dragged; null when nothing is.</summary>
+    string? dragging;
+    /// <summary>The folder the dragged row would land in ("" for the root), or null when dropping here does nothing.</summary>
+    string? dropFolder;
+    /// <summary>Set when a drag starts, so the click that ends the press does not also open the row.</summary>
+    bool dragged;
+    string? hoverPath;
+    DispatcherTimer? hoverTimer;
 
     public MainWindow() : this(new Session(Session.DefaultDirectory())) { }
 
@@ -42,6 +56,12 @@ public partial class MainWindow : Window
         };
         surface.ImageTapped += OpenCover;
         Viewer.BackRequested += CloseCover;
+        // One drop target for the whole list: which row the pointer is over decides the folder, and empty space
+        // below the rows means the notebook root.
+        DragDrop.SetAllowDrop(TreeScroll, true);
+        TreeScroll.AddHandler(DragDrop.DragOverEvent, OnTreeDragOver);
+        TreeScroll.AddHandler(DragDrop.DragLeaveEvent, (_, _) => LeaveTree());
+        TreeScroll.AddHandler(DragDrop.DropEvent, OnTreeDrop);
         session.Changed += () => Dispatcher.UIThread.Post(Refresh);
         AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddNotebookButton.Click += (_, _) => ShowAddNotebook();
@@ -267,13 +287,35 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
             Margin = new Avalonia.Thickness(row.Depth * 14, 0, 0, 0),
-            Background = session.OpenPath == row.Entry.Path || session.Highlighted == row.Entry.Path
-                ? new SolidColorBrush(Color.Parse("#E6E6E6")) : Brushes.Transparent,
+            Background = RowBrush(row.Entry.Path),
             Tag = row.Entry.Path,
             ContextMenu = RowMenu(row.Entry),
         };
+        // A button handles the press itself, so these listen to events that are already handled too.
+        Avalonia.Point? pressedAt = null;
+        button.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            dragged = false;
+            pressedAt = e.GetCurrentPoint(button).Properties.IsLeftButtonPressed ? e.GetPosition(button) : null;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+        button.AddHandler(PointerReleasedEvent, (_, _) => pressedAt = null, RoutingStrategies.Tunnel, handledEventsToo: true);
+        button.AddHandler(PointerMovedEvent, async (_, e) =>
+        {
+            if (pressedAt is not { } start || !e.GetCurrentPoint(button).Properties.IsLeftButtonPressed) return;
+            var now = e.GetPosition(button);
+            // A press that wanders a few pixels is still a click.
+            if (Math.Abs(now.X - start.X) < 6 && Math.Abs(now.Y - start.Y) < 6) return;
+            pressedAt = null;
+            dragged = true;
+            dragging = row.Entry.Path;
+            var data = new DataObject();
+            data.Set(DragFormat, row.Entry.Path);
+            try { await DragDrop.DoDragDrop(e, data, DragDropEffects.Move); }
+            finally { EndDrag(); }
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
         button.Click += (_, _) =>
         {
+            if (dragged) { dragged = false; return; }
             if (row.Entry.IsFolder) { session.ToggleFolder(row.Entry.Path); return; }
             // Before opening: picking the note a picture is covering has to uncover it, and its path does not change.
             coverImage = null;
@@ -294,6 +336,7 @@ public partial class MainWindow : Window
         }
         if (!entry.IsFolder && NoteIndex.IsEditable(entry.Path)) items.Add(MenuEntry("历史版本…", () => ShowHistory(entry.Path)));
         items.Add(MenuEntry("重命名…", () => AskRename(entry.Path)));
+        items.Add(MenuEntry("移动到…", () => ShowMove(entry.Path)));
         items.Add(MenuEntry("在文件资源管理器中显示", () => Session.Reveal(session.FullPath(entry.Path))));
         items.Add(new Separator());
         items.Add(MenuEntry("删除…", () => _ = ConfirmDelete(entry.Path)));
@@ -306,6 +349,246 @@ public partial class MainWindow : Window
         item.Click += (_, _) => click();
         return item;
     }
+
+    IBrush RowBrush(string? path) =>
+        path != null && path == dropFolder ? new SolidColorBrush(Color.Parse("#B3D4FF"))
+        : path != null && (session.OpenPath == path || session.Highlighted == path) ? new SolidColorBrush(Color.Parse("#E6E6E6"))
+        : Brushes.Transparent;
+
+    /// <summary>The row whose lines the vertical position falls on. The sideways position is ignored: nested rows are indented.</summary>
+    NoteEntry? RowAt(double y)
+    {
+        foreach (var child in Tree.Children)
+        {
+            if (child is Button { Tag: string path } && y >= child.Bounds.Top - 0.5 && y <= child.Bounds.Bottom + 0.5)
+                return session.Rows.FirstOrDefault(row => row.Entry.Path == path)?.Entry;
+        }
+        return null;
+    }
+
+    /// <summary>The folder a row dropped at this height goes to: a folder itself, a file's folder, the root for empty space.</summary>
+    string FolderAt(double y)
+    {
+        var entry = RowAt(y);
+        return entry == null ? "" : entry.IsFolder ? entry.Path : FileTree.Parent(entry.Path);
+    }
+
+    void OnTreeDragOver(object? sender, DragEventArgs e)
+    {
+        if (dragging == null || !e.Data.Contains(DragFormat))
+        {
+            e.DragEffects = DragDropEffects.None;
+            return;
+        }
+        var y = e.GetPosition(Tree).Y;
+        var folder = FolderAt(y);
+        var allowed = FileTree.CanMove(dragging, folder);
+        e.DragEffects = allowed ? DragDropEffects.Move : DragDropEffects.None;
+        MarkDropTarget(allowed ? folder : null);
+        OpenFolderOnRest(y);
+        ScrollNearEdge(e.GetPosition(TreeScroll).Y);
+        e.Handled = true;
+    }
+
+    void OnTreeDrop(object? sender, DragEventArgs e)
+    {
+        var source = dragging;
+        var folder = FolderAt(e.GetPosition(Tree).Y);
+        EndDrag();
+        e.Handled = true;
+        if (source == null || !FileTree.CanMove(source, folder)) return;
+        _ = RequestMove(source, folder);
+    }
+
+    void LeaveTree()
+    {
+        MarkDropTarget(null);
+        StopHoverOpen();
+    }
+
+    void EndDrag()
+    {
+        dragging = null;
+        LeaveTree();
+    }
+
+    /// <summary>Lights up the folder the dragged row would land in; the whole list's frame for the notebook root.</summary>
+    void MarkDropTarget(string? folder)
+    {
+        dropFolder = folder;
+        foreach (var child in Tree.Children.OfType<Button>()) child.Background = RowBrush(child.Tag as string);
+        TreeFrame.BorderBrush = folder == "" ? new SolidColorBrush(Color.Parse("#3B82F6")) : Brushes.Transparent;
+    }
+
+    /// <summary>Opens a closed folder the dragged row has rested on for a moment.</summary>
+    void OpenFolderOnRest(double y)
+    {
+        var entry = RowAt(y);
+        var path = entry is { IsFolder: true } && !session.Expanded.Contains(entry.Path) ? entry.Path : null;
+        if (path == hoverPath) return;
+        StopHoverOpen();
+        if (path == null) return;
+        hoverPath = path;
+        var timer = new DispatcherTimer { Interval = HoverOpenDelay };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (hoverPath != path) return;
+            hoverPath = null;
+            session.ToggleFolder(path);
+        };
+        hoverTimer = timer;
+        timer.Start();
+    }
+
+    void StopHoverOpen()
+    {
+        hoverTimer?.Stop();
+        hoverTimer = null;
+        hoverPath = null;
+    }
+
+    /// <summary>Windows keeps calling DragOver while the pointer rests, so this scrolls steadily at the edge.</summary>
+    void ScrollNearEdge(double y)
+    {
+        const double step = 24;
+        var offset = TreeScroll.Offset;
+        var last = Math.Max(0, TreeScroll.Extent.Height - TreeScroll.Viewport.Height);
+        if (y < ScrollEdge) TreeScroll.Offset = new Avalonia.Vector(offset.X, Math.Max(0, offset.Y - step));
+        else if (y > TreeScroll.Bounds.Height - ScrollEdge) TreeScroll.Offset = new Avalonia.Vector(offset.X, Math.Min(last, offset.Y + step));
+    }
+
+    /// <summary>The picker behind "移动到…": the notebook root and every folder, to choose where an item goes.</summary>
+    void ShowMove(string source)
+    {
+        if (session.Current == null) return;
+        session.Flush();
+        var tree = session.FolderTree();
+        var entry = FileTree.Find(tree, source);
+        var name = entry is { IsFolder: true } ? Path.GetFileName(source) : Path.GetFileNameWithoutExtension(source);
+        // Opens on the folder the item is in, so the current place is the first thing seen.
+        var expanded = new HashSet<string>(FileTree.Ancestors(source), StringComparer.Ordinal);
+        string? chosen = null;
+        var list = new StackPanel { Spacing = 1 };
+        var move = new Button { Content = "移动", IsEnabled = false };
+
+        void Paint()
+        {
+            list.Children.Clear();
+            list.Children.Add(PickerRow("", "笔记本根目录", 0, false));
+            foreach (var row in FileTree.VisibleRows(tree, expanded).Where(row => row.Entry.IsFolder))
+                list.Children.Add(PickerRow(row.Entry.Path, row.Entry.Name, row.Depth + 1, row.Entry.Children.Any(child => child.IsFolder)));
+            move.IsEnabled = chosen != null;
+        }
+
+        Control PickerRow(string path, string label, int depth, bool subfolders)
+        {
+            // Where it already is, itself and everything inside it are greyed out (FileTree.CanMove).
+            var allowed = FileTree.CanMove(source, path);
+            var arrow = new Button
+            {
+                Content = subfolders ? (expanded.Contains(path) ? "▾" : "▸") : "",
+                Width = 28,
+                IsEnabled = subfolders,
+                Background = Brushes.Transparent,
+                BorderThickness = new Avalonia.Thickness(0),
+            };
+            arrow.Click += (_, _) =>
+            {
+                if (!expanded.Add(path)) expanded.Remove(path);
+                Paint();
+            };
+            var pick = new Button
+            {
+                Content = label,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                IsEnabled = allowed,
+                Background = chosen == path && allowed ? new SolidColorBrush(Color.Parse("#B3D4FF")) : Brushes.Transparent,
+            };
+            pick.Click += (_, _) =>
+            {
+                chosen = path;
+                Paint();
+            };
+            var line = new DockPanel { Margin = new Avalonia.Thickness(Math.Max(depth - 1, 0) * 14, 0, 0, 0) };
+            DockPanel.SetDock(arrow, Dock.Left);
+            line.Children.Add(arrow);
+            line.Children.Add(pick);
+            return line;
+        }
+
+        move.Click += (_, _) =>
+        {
+            if (chosen is not { } folder) return;
+            CloseDialog();
+            _ = RequestMove(source, folder);
+        };
+        Paint();
+        var buttons = Buttons(("取消", () => CloseDialog()));
+        buttons.Children.Add(move);
+        OpenDialog(
+            new TextBlock { Text = "把「" + name + "」移动到", FontSize = 18, TextWrapping = TextWrapping.Wrap },
+            new ScrollViewer { MaxHeight = 320, Content = list },
+            buttons);
+    }
+
+    /// <summary>
+    /// Checks a move before it happens (design.md「首页」): the name must be free in the target folder, and if notes
+    /// would lose their pictures the user is asked first. The picker and dragging both come through here.
+    /// </summary>
+    async Task RequestMove(string source, string folder)
+    {
+        if (session.Current == null || !FileTree.CanMove(source, folder)) return;
+        session.Flush();
+        if (session.Syncing)
+        {
+            Notice("无法移动", "正在同步，请等同步结束再移动。");
+            return;
+        }
+        var name = source.Split('/').Last();
+        var target = session.FullPath(folder.Length == 0 ? name : folder + "/" + name);
+        if (File.Exists(target) || System.IO.Directory.Exists(target))
+        {
+            Notice("无法移动", "目标文件夹里已有同名文件");
+            return;
+        }
+        var root = session.FullPath("");
+        var broken = await Task.Run(() => BrokenImageCheck.Notes(root, source, folder));
+        if (broken.Count == 0)
+        {
+            Move(source, folder);
+            return;
+        }
+        OpenDialog(
+            new TextBlock { Text = "移动后图片会找不到", FontSize = 18 },
+            new TextBlock { Text = "移动后，" + broken.Count + " 篇笔记里的图片会找不到", TextWrapping = TextWrapping.Wrap },
+            Buttons(("取消", () => CloseDialog()), ("仍然移动", () =>
+            {
+                CloseDialog();
+                Move(source, folder);
+            })));
+    }
+
+    void Move(string source, string folder)
+    {
+        try
+        {
+            session.MoveItem(source, folder);
+            // A picture tapped in the open note may have moved with it.
+            coverImage = null;
+        }
+        catch (Exception error)
+        {
+            Notice("无法移动", error.Message);
+        }
+    }
+
+    void Notice(string title, string message) =>
+        OpenDialog(
+            new TextBlock { Text = title, FontSize = 18 },
+            new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            Buttons(("好", () => CloseDialog())));
 
     void AskRename(string path) => AskName("重命名", "新名称", name => session.RenameItem(path, name));
 
