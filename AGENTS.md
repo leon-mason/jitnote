@@ -56,6 +56,7 @@
 
 - 开始每个需求前先 `git pull` 拉取最新代码；有冲突先尝试自行合并，解决不了再问用户。
 - 开发完成并通过必要验证后，必须清楚说明本次改动并创建 Git commit 然后 push到远端；提交信息须准确概括改动目的，只提交本次任务涉及的文件，不得夹带工作区中已有的无关改动。
+- 运行过 `scripts/setup-gitee-mirror.sh` 的电脑，`git push` 会先推 GitHub、再推 Gitee 镜像。只有 Gitee 报错时，GitHub 已经推上去了，不要重试或强推，告诉用户 Gitee 镜像没跟上即可。
 - 用 Conventional Commits（`feat:` `fix:` `docs:` `research:` `test:`），一个 commit 只做一件事。冒号后沿用现有的英文祈使句。`Release x.y.z` 由 `scripts/release.sh` 生成，不受此限。
 - 预计改动文件数不超过 10 个（含 10 个）时，可以直接在 `main` 分支开发。
 - 预计改动超过 10 个文件时，必须在开始开发前新建独立 Git WorkTree，并在该 WorkTree 中完成开发。若开发过程中范围扩大到超过 10 个文件，须在修改第 11 个文件前停止，并迁移到独立 WorkTree 后再继续。开发完成后需要询问用户，是否合并到 `main` 分支并删除分支，用户选择合并删除分支后立刻 push 到远端。

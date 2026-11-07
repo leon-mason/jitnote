@@ -143,7 +143,7 @@ The script opens an editor for the update notes (the app shows them in its updat
 
 The release signing key is kept in the repository secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`). **Always sign with the same key**: an APK signed with a different key can't update an installed app.
 
-The [Gitee mirror](https://gitee.com/shitoupapa/jitnote) uses Gitee's own repository mirroring: Gitee pulls the branches, tags and commits from GitHub, and nothing in this repository is involved. Pushing to Gitee from GitHub Actions doesn't work, because GitHub's runners cannot reach gitee.com (the connection times out). If the mirror stops updating, check "管理 → 仓库镜像管理" in the Gitee repository and trigger an update by hand if needed.
+The [Gitee mirror](https://gitee.com/shitoupapa/jitnote) is kept up to date by the computer that pushes the code: run `scripts/setup-gitee-mirror.sh` once on it, and from then on `git push` pushes to GitHub and then to Gitee, and `scripts/release.sh` pushes each new version's commit and tag there too. That computer needs SSH access to the Gitee account shitoupapa. GitHub's servers cannot reach gitee.com (the connection times out), so neither GitHub Actions nor the push notifications for Gitee's own repository mirroring get through; that mirror only updates when you click "更新" (Update) by hand. If the push to Gitee fails, `git push` reports an error but the code on GitHub is not affected; run `git push --follow-tags` later to catch up.
 
 ### Local test server for debug builds
 

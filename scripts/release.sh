@@ -3,6 +3,7 @@
 # 发布一个新版本：算出新版本号 → 改 appVersion → 提交 → 打带更新说明的标签 → 推送。
 # 推送标签后，GitHub Actions（.github/workflows/release.yml）会测试、签名并发布安装包，
 # 已安装的 App 会提示更新。
+# 运行过 scripts/setup-gitee-mirror.sh 的电脑，还会把提交和标签推到 Gitee 镜像；推不上去只提示，不影响发版。
 #
 # 用法：
 #   scripts/release.sh                 打开编辑器写更新说明
@@ -125,8 +126,15 @@ perl -pi -e "s/^val appVersion = \".*\"\$/val appVersion = \"$next\"/" "$GRADLE_
 git commit --quiet -m "Release $next" -- "$GRADLE_FILE"
 printf '%s\n' "$notes" | git tag --annotate --cleanup=whitespace --file=- "$tag"
 # 一起推送：要么都成功，要么都不推，不会出现有提交没标签的情况。
-git push --quiet --atomic origin main "$tag"
+# 直接推到 GitHub 的地址，而不是 origin：origin 可能还配了 Gitee 镜像，Gitee 失败不能让发版半途退出，
+# 那时 GitHub 上已经有了标签、开始打包，再运行本脚本会因为“标签已经存在”被拒绝。
+git push --quiet --atomic "$(git remote get-url origin)" main "$tag"
+git fetch --quiet origin main
 echo "✓ 已推送 ${tag}，GitHub 正在打包发布。"
+for mirror in $(git remote get-url --push --all origin | grep -v github.com || true); do
+    git push --quiet --atomic "$mirror" main "$tag" ||
+        echo "! 没能推到镜像 $mirror，GitHub 上的发布不受影响。之后运行 git push --follow-tags 补上。"
+done
 
 if command -v gh > /dev/null; then
     run=""

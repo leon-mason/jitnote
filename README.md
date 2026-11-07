@@ -143,7 +143,7 @@ scripts/release.sh
 
 正式签名密钥保存在仓库的 Secrets（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`）里。**密钥必须一直用同一把**，换了密钥，已安装的 App 就无法更新。
 
-[Gitee 镜像](https://gitee.com/shitoupapa/jitnote)用的是 Gitee 自带的「仓库镜像管理」：由 Gitee 从 GitHub 拉取分支、标签和提交，本仓库不需要做任何事。不在 GitHub Actions 里推送到 Gitee，因为 GitHub 的服务器连不上 gitee.com（连接超时）。同步停了，就到 Gitee 仓库的「管理 → 仓库镜像管理」里看看，必要时手动点一次更新。
+[Gitee 镜像](https://gitee.com/shitoupapa/jitnote)由推送代码的电脑同步：在那台电脑上运行一次 `scripts/setup-gitee-mirror.sh`，之后 `git push` 会依次推到 GitHub 和 Gitee，`scripts/release.sh` 也会把新版本的提交和标签推过去。需要这台电脑能用 SSH 连上 Gitee 账号 shitoupapa。GitHub 的服务器连不上 gitee.com（连接超时），所以 GitHub Actions 推不过去，Gitee「仓库镜像管理」的自动同步也收不到推送通知；那里的镜像只在手动点「更新」时才同步。Gitee 那一份没推上去时，`git push` 会报错，但 GitHub 上的代码不受影响，之后运行 `git push --follow-tags` 补上。
 
 ### 调试构建的本地测试服务器
 
