@@ -1,5 +1,5 @@
 // Bumped by scripts/release.sh. Release tags must match it (v0.2.0 ↔ "0.2.0"); see .github/workflows/release.yml.
-val appVersion = "0.10.0"
+val appVersion = "0.11.0"
 
 // Set only in the release workflow, from the repository secrets.
 val releaseKeystore: String? = System.getenv("RELEASE_KEYSTORE")
