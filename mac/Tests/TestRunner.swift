@@ -37,6 +37,7 @@ enum TestRunner {
             ("FileTree", FileTreeTests.all),
             ("NoteAssets", NoteAssetsTests.all),
             ("BrokenImageCheck", BrokenImageCheckTests.all),
+            ("MoveFiles", MoveFilesTests.all),
             ("AppUpdates", AppUpdatesTests.all),
             ("HostingApi", HostingApiTests.all),
         ]

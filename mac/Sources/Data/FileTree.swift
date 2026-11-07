@@ -59,6 +59,12 @@ enum FileTree {
         path == old || path.hasPrefix(old + "/") ? new + path.dropFirst(old.count) : path
     }
 
+    /// Whether [source] (a file or folder) can be moved into [folder] ("" for the root): not where it already is,
+    /// and a folder not into itself or anything inside it.
+    static func canMove(_ source: String, into folder: String) -> Bool {
+        folder != parent(source) && folder != source && !folder.hasPrefix(source + "/")
+    }
+
     static func renamed(_ expanded: Set<String>, old: String, new: String) -> Set<String> {
         Set(expanded.map { moved($0, old: old, new: new) })
     }

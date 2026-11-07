@@ -169,6 +169,78 @@ public class NoteTests : IDisposable
     }
 
     [Fact]
+    public void CanMoveOnlyToAnotherPlaceOutsideItself()
+    {
+        Assert.True(FileTree.CanMove("a/b.md", ""));
+        Assert.True(FileTree.CanMove("b.md", "a"));
+        Assert.False(FileTree.CanMove("a/b.md", "a"));
+        Assert.False(FileTree.CanMove("b.md", ""));
+        Assert.False(FileTree.CanMove("a", "a"));
+        Assert.False(FileTree.CanMove("a", "a/c"));
+        Assert.True(FileTree.CanMove("a", "ab"));
+        Assert.True(FileTree.CanMove("a/b", ""));
+    }
+
+    string Full(string path) => Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar));
+
+    [Fact]
+    public void MovesAFileIntoAFolder()
+    {
+        Write(root, "a.md", "内容");
+        Directory.CreateDirectory(Full("工作"));
+        var moved = NoteFiles.Move(Full("a.md"), Full("工作"));
+        Assert.Equal(Full("工作/a.md"), moved);
+        Assert.Equal("内容", File.ReadAllText(moved));
+        Assert.False(File.Exists(Full("a.md")));
+    }
+
+    [Fact]
+    public void MovesAFolderWithEverythingInside()
+    {
+        Write(root, "会议/2026/x.md", "纪要");
+        Directory.CreateDirectory(Full("工作"));
+        NoteFiles.Move(Full("会议"), Full("工作"));
+        Assert.Equal("纪要", File.ReadAllText(Full("工作/会议/2026/x.md")));
+        Assert.False(Directory.Exists(Full("会议")));
+    }
+
+    [Fact]
+    public void MovesToTheNotebookRoot()
+    {
+        Write(root, "工作/a.md");
+        NoteFiles.Move(Full("工作/a.md"), root);
+        Assert.True(File.Exists(Full("a.md")));
+    }
+
+    [Fact]
+    public void RefusesToMoveWhenTheNameIsTaken()
+    {
+        Write(root, "a.md", "新");
+        Write(root, "工作/a.md", "旧");
+        var error = Assert.Throws<SyncException>(() => NoteFiles.Move(Full("a.md"), Full("工作")));
+        Assert.Equal("目标文件夹里已有同名文件", error.Message);
+        Assert.Equal("新", File.ReadAllText(Full("a.md")));
+        Assert.Equal("旧", File.ReadAllText(Full("工作/a.md")));
+    }
+
+    [Fact]
+    public void AFolderCannotGoIntoItself()
+    {
+        Write(root, "会议/2026/x.md");
+        Assert.Throws<SyncException>(() => NoteFiles.Move(Full("会议"), Full("会议/2026")));
+        Assert.Throws<SyncException>(() => NoteFiles.Move(Full("会议"), Full("会议")));
+        Assert.True(File.Exists(Full("会议/2026/x.md")));
+    }
+
+    [Fact]
+    public void MovingToWhereItIsChangesNothing()
+    {
+        Write(root, "a.md", "内容");
+        NoteFiles.Move(Full("a.md"), root);
+        Assert.Equal("内容", File.ReadAllText(Full("a.md")));
+    }
+
+    [Fact]
     public void BrokenImagesWhenANoteMovesAwayFromItsImages()
     {
         var book = ImageNotebook();

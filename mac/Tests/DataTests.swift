@@ -168,6 +168,63 @@ enum NoteAssetsTests {
     ]
 }
 
+enum MoveFilesTests {
+    static func read(_ root: URL, _ path: String) -> String? {
+        try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    static func exists(_ root: URL, _ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path)
+    }
+
+    static func message(_ body: () throws -> Void) -> String? {
+        do { try body() } catch { return (error as? SyncError)?.message ?? "\(error)" }
+        return nil
+    }
+
+    static let all: [TestCase] = [
+        TestCase("movesAFileIntoAFolder") { root in
+            try write(root, "a.md", "内容")
+            try FileManager.default.createDirectory(at: root.appendingPathComponent("工作"), withIntermediateDirectories: true)
+            let moved = try NoteFiles.move(root.appendingPathComponent("a.md"), into: root.appendingPathComponent("工作"))
+            try expectEqual(NoteIndex.relativePath(of: moved, in: root), "工作/a.md")
+            try expectEqual(read(root, "工作/a.md"), "内容")
+            try expect(!exists(root, "a.md"))
+        },
+        TestCase("movesAFolderWithEverythingInside") { root in
+            try write(root, "会议/2026/x.md", "纪要")
+            try FileManager.default.createDirectory(at: root.appendingPathComponent("工作"), withIntermediateDirectories: true)
+            try NoteFiles.move(root.appendingPathComponent("会议"), into: root.appendingPathComponent("工作"))
+            try expectEqual(read(root, "工作/会议/2026/x.md"), "纪要")
+            try expect(!exists(root, "会议"))
+        },
+        TestCase("movesToTheNotebookRoot") { root in
+            try write(root, "工作/a.md")
+            try NoteFiles.move(root.appendingPathComponent("工作/a.md"), into: root)
+            try expect(exists(root, "a.md"))
+        },
+        TestCase("refusesWhenTheNameIsTaken") { root in
+            try write(root, "a.md", "新")
+            try write(root, "工作/a.md", "旧")
+            let error = message { try NoteFiles.move(root.appendingPathComponent("a.md"), into: root.appendingPathComponent("工作")) }
+            try expectEqual(error, "目标文件夹里已有同名文件")
+            try expectEqual(read(root, "a.md"), "新")
+            try expectEqual(read(root, "工作/a.md"), "旧")
+        },
+        TestCase("aFolderCannotGoIntoItself") { root in
+            try write(root, "会议/2026/x.md")
+            try expect(message { try NoteFiles.move(root.appendingPathComponent("会议"), into: root.appendingPathComponent("会议/2026")) } != nil)
+            try expect(message { try NoteFiles.move(root.appendingPathComponent("会议"), into: root.appendingPathComponent("会议")) } != nil)
+            try expect(exists(root, "会议/2026/x.md"))
+        },
+        TestCase("movingToWhereItIsChangesNothing") { root in
+            try write(root, "a.md", "内容")
+            try NoteFiles.move(root.appendingPathComponent("a.md"), into: root)
+            try expectEqual(read(root, "a.md"), "内容")
+        },
+    ]
+}
+
 enum BrokenImageCheckTests {
     static func notebook(_ root: URL) throws -> URL {
         let book = root.appendingPathComponent("notebook")
@@ -463,6 +520,16 @@ enum FileTreeTests {
             try expectEqual(FileTree.ancestors("会议/2026/周会.md"), ["会议", "会议/2026"])
         },
 
+        TestCase("canMoveOnlyToAnotherPlaceOutsideItself") { _ in
+            try expect(FileTree.canMove("a/b.md", into: ""))
+            try expect(FileTree.canMove("b.md", into: "a"))
+            try expect(!FileTree.canMove("a/b.md", into: "a"))
+            try expect(!FileTree.canMove("b.md", into: ""))
+            try expect(!FileTree.canMove("a", into: "a"))
+            try expect(!FileTree.canMove("a", into: "a/c"))
+            try expect(FileTree.canMove("a", into: "ab"))
+            try expect(FileTree.canMove("a/b", into: ""))
+        },
         TestCase("renameMovesTheFolderAndWhatIsInside") { _ in
             try expectEqual(FileTree.renamed(["会议", "会议/2026", "b"], old: "会议", new: "工作"), ["工作", "工作/2026", "b"])
         },

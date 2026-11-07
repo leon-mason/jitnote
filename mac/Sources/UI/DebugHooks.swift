@@ -21,6 +21,7 @@ import WebKit
 ///   mode                      the preview/edit toggle (as the toolbar button)
 ///   mknote <name> | mkfolder <name>   create at the current location through the real handlers
 ///   rename <path> <new name> | delete <path>   the real rename and delete handlers
+///   move <path> <folder or />   the real move handler, with its name check and picture warning ("/" is the notebook root)
 ///   newnote | cancel          opens / closes the new-note sheet (read its title with `state`)
 ///   state <file>              writes highlight, open note, mode, open folders, sheet title and visible rows
 ///   defaultmode <edit|preview>   the "打开笔记时默认为" setting

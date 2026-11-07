@@ -226,6 +226,24 @@ enum NoteFiles {
     }
 }
 
+extension NoteFiles {
+    /// Moves [item] into [folder] and returns where it is now. Never replaces anything: a file or folder of the
+    /// same name in [folder] stops the move (design.md「首页」), and a folder cannot go into itself.
+    @discardableResult
+    static func move(_ item: URL, into folder: URL) throws -> URL {
+        let target = folder.appendingPathComponent(item.lastPathComponent)
+        let source = item.standardizedFileURL.resolvingSymlinksInPath().path
+        if target.standardizedFileURL.resolvingSymlinksInPath().path == source { return item }
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: item.path, isDirectory: &isDir)
+        let destination = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        if isDir.boolValue && (destination + "/").hasPrefix(source + "/") { throw SyncError(.other, "不能把文件夹移动到它自己里面") }
+        guard !FileManager.default.fileExists(atPath: target.path) else { throw SyncError(.other, "目标文件夹里已有同名文件") }
+        try FileManager.default.moveItem(at: item, to: target)
+        return target
+    }
+}
+
 /// Finds the file a note refers to (images for now), the way the editors people come from do:
 /// next to the note (Typora), from the notebook root (Obsidian), or by file name anywhere in the
 /// notebook (Obsidian's ![[cat.png]]). Never resolves outside the notebook.

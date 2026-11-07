@@ -70,5 +70,20 @@ object NoteFiles {
         return target
     }
 
+    /**
+     * Moves [item] into [folder] and returns where it is now. Never replaces anything: a file or folder of the
+     * same name in [folder] stops the move (design.md「首页」), and a folder cannot go into itself.
+     */
+    fun move(item: File, folder: File): File {
+        val target = File(folder, item.name)
+        if (target.canonicalFile == item.canonicalFile) return item
+        require(!item.isDirectory || !(folder.canonicalPath + File.separator).startsWith(item.canonicalPath + File.separator)) {
+            "不能把文件夹移动到它自己里面"
+        }
+        require(!target.exists()) { "目标文件夹里已有同名文件" }
+        require(item.renameTo(target)) { "移动失败" }
+        return target
+    }
+
     fun relativePath(root: File, file: File): String = file.relativeTo(root).invariantSeparatorsPath
 }

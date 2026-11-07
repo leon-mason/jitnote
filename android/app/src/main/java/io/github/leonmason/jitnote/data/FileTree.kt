@@ -49,6 +49,13 @@ object FileTree {
     fun moved(path: String, old: String, new: String): String =
         if (path == old || path.startsWith("$old/")) new + path.removePrefix(old) else path
 
+    /**
+     * Whether [source] (a file or folder) can be moved into [folder] ("" for the root): not where it already is,
+     * and a folder not into itself or anything inside it.
+     */
+    fun canMove(source: String, folder: String): Boolean =
+        folder != parent(source) && folder != source && !folder.startsWith("$source/")
+
     fun renamed(expanded: Set<String>, old: String, new: String): Set<String> =
         expanded.mapTo(mutableSetOf()) { moved(it, old, new) }
 

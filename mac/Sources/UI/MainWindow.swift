@@ -84,6 +84,8 @@ struct NotebookView: View {
     @State private var refresh = 0
     @State private var prompt: Prompt?
     @State private var deleting: URL?
+    /// Why a move did not happen, or what the user has to confirm before it does.
+    @State private var moveNotice: MoveNotice?
     @State private var historyPath: String?
     /// The picture covering the note pane, notebook-relative; the open note stays mounted underneath.
     @State private var imagePath: String?
@@ -97,14 +99,21 @@ struct NotebookView: View {
 
     /// `newNote` and `newFolder` carry the folder they create in.
     private enum Prompt: Identifiable {
-        case newNote(String), newFolder(String), rename(URL)
+        case newNote(String), newFolder(String), rename(URL), move(String)
         var id: String {
             switch self {
             case .newNote(let folder): "note:\(folder)"
             case .newFolder(let folder): "folder:\(folder)"
             case .rename(let url): "rename:\(url.path)"
+            case .move(let path): "move:\(path)"
             }
         }
+    }
+
+    private enum MoveNotice {
+        case failed(String)
+        /// Notes whose pictures would be lost, with the move to go ahead with if the user insists.
+        case brokenImages(count: Int, source: String, folder: String)
     }
 
     private var root: URL { notebooks.dir(notebook) }
@@ -129,6 +138,10 @@ struct NotebookView: View {
                         Task { await bridge.flush() }
                         prompt = .rename(root.appendingPathComponent(path))
                     },
+                    onMove: { path in
+                        Task { await bridge.flush() }
+                        prompt = .move(path)
+                    },
                     onDelete: { path in
                         Task { await bridge.flush() }
                         deleting = root.appendingPathComponent(path)
@@ -138,6 +151,19 @@ struct NotebookView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             detail
+                .alert(moveNoticeTitle, isPresented: Binding(get: { moveNotice != nil }, set: { if !$0 { moveNotice = nil } }), presenting: moveNotice) { notice in
+                    if case .brokenImages(_, let source, let folder) = notice {
+                        Button("仍然移动") { move(source, to: folder) }
+                        Button("取消", role: .cancel) {}
+                    } else {
+                        Button("好") {}
+                    }
+                } message: { notice in
+                    switch notice {
+                    case .failed(let message): Text(message)
+                    case .brokenImages(let count, _, _): Text("移动后，\(count) 篇笔记里的图片会找不到")
+                    }
+                }
         }
         .navigationTitle(titlePath.map { ($0 as NSString).lastPathComponent } ?? notebook.name)
         .navigationSubtitle(titlePath.map { ($0 as NSString).deletingLastPathComponent } ?? "")
@@ -305,12 +331,14 @@ struct NotebookView: View {
         case "mkfolder": if words.count > 1 { NSLog("debug mkfolder: \(createFolder(named: words[1], in: currentFolder) ?? "ok")") }
         case "rename": if words.count > 2 { NSLog("debug rename: \(rename(root.appendingPathComponent(words[1]), to: words[2]) ?? "ok")") }
         case "delete": if words.count > 1 { deleting = root.appendingPathComponent(words[1]); delete() }
+        case "move": if words.count > 2 { requestMove(words[1], to: words[2] == "/" ? "" : words[2]) }
         case "state" where words.count > 1:
             let title = prompt.map { p -> String in
                 switch p {
                 case .newNote(let f): f.isEmpty ? "新建笔记" : "在「\(f.components(separatedBy: "/").last!)」里新建笔记"
                 case .newFolder(let f): f.isEmpty ? "新建文件夹" : "在「\(f.components(separatedBy: "/").last!)」里新建文件夹"
                 case .rename: "重命名"
+                case .move(let path): "移动：\(path)"
                 }
             } ?? "-"
             let lines = ["highlighted=\(highlighted)", "selection=\(selection ?? "-")", "image=\(imagePath ?? "-")", "mode=\(viewMode.rawValue)",
@@ -494,6 +522,14 @@ struct NotebookView: View {
                        label: "文件夹名称", confirm: "创建", onCancel: { self.prompt = nil }) { name in
                 createFolder(named: name, in: folder)
             }
+        case .move(let source):
+            let url = root.appendingPathComponent(source)
+            MoveSheet(name: isDirectory(url) ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent,
+                      source: source, tree: tree ?? [], onCancel: { self.prompt = nil },
+                      onMove: { folder in
+                          self.prompt = nil
+                          requestMove(source, to: folder)
+                      })
         case .rename(let url):
             let wasFolder = isDirectory(url)
             TextPrompt(title: "重命名", label: "新名称",
@@ -550,6 +586,49 @@ struct NotebookView: View {
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    private var moveNoticeTitle: String {
+        if case .brokenImages = moveNotice { return "移动后图片会找不到" }
+        return "无法移动"
+    }
+
+    /// Checks a move before it happens (design.md「首页」): the name must be free in the target folder, and if notes
+    /// would lose their pictures the user is asked first. Both the picker and dragging come through here.
+    private func requestMove(_ source: String, to folder: String) {
+        guard FileTree.canMove(source, into: folder) else { return }
+        Task {
+            // Let a closing sheet go before an alert comes up, or the alert is dropped.
+            try? await Task.sleep(for: .milliseconds(200))
+            await bridge.flush()
+            guard !syncing else { return moveNotice = .failed("正在同步，请等同步结束再移动。") }
+            let name = (source as NSString).lastPathComponent
+            let target = folder.isEmpty ? name : "\(folder)/\(name)"
+            guard !FileManager.default.fileExists(atPath: root.appendingPathComponent(target).path) else {
+                return moveNotice = .failed("目标文件夹里已有同名文件")
+            }
+            let root = root
+            let broken = await Task.detached { BrokenImageCheck.notes(root: root, moving: source, to: folder) }.value
+            if broken.isEmpty { move(source, to: folder) } else { moveNotice = .brokenImages(count: broken.count, source: source, folder: folder) }
+        }
+    }
+
+    /// Like a rename for the tree: the open note, the highlight and the open folders follow it to the new path.
+    /// Nothing is committed; the move is recorded by the next sync.
+    private func move(_ source: String, to folder: String) {
+        do {
+            let moved = try NoteFiles.move(root.appendingPathComponent(source), into: root.appendingPathComponent(folder))
+            let new = NoteIndex.relativePath(of: moved, in: root)
+            // The target folder opens (it is the parent of the new path), so the item is seen where it landed.
+            notebooks.setExpandedFolders(notebook.id, FileTree.renamed(expanded, old: source, new: new).union(FileTree.ancestors(new)))
+            highlighted = new
+            selection = selection.map { FileTree.moved($0, old: source, new: new) }
+            imagePath = imagePath.map { FileTree.moved($0, old: source, new: new) }
+            Task { await notebooks.refreshUnsynced(notebook) }
+            refresh += 1
+        } catch {
+            moveNotice = .failed(error.localizedDescription)
         }
     }
 
@@ -661,6 +740,7 @@ private struct Sidebar: View {
     let onNewFolder: (String) -> Void
     let onHistory: (String) -> Void
     let onRename: (String) -> Void
+    let onMove: (String) -> Void
     let onDelete: (String) -> Void
     let onSync: () -> Void
     @Binding var addingNotebook: Bool
@@ -813,6 +893,7 @@ private struct Sidebar: View {
             Button("历史版本…") { onHistory(entry.path) }
         }
         Button("重命名…") { onRename(entry.path) }
+        Button("移动到…") { onMove(entry.path) }
         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([notebooks.dir(notebook).appendingPathComponent(entry.path)]) }
         Divider()
         Button("删除…", role: .destructive) { onDelete(entry.path) }
