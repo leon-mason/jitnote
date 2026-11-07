@@ -524,6 +524,22 @@ public class NotebookGitTests : IDisposable
         Assert.Equal("编辑：b", NotebookGit.DescribeChanges(Array.Empty<string>(), new[] { "x/b.md" }, Array.Empty<string>()));
         Assert.Equal("删除：c.txt", NotebookGit.DescribeChanges(Array.Empty<string>(), Array.Empty<string>(), new[] { "c.txt" }));
         Assert.Equal("重命名：a → b", NotebookGit.DescribeChanges(new[] { "b.md" }, Array.Empty<string>(), new[] { "a.md" }));
+        var none = Array.Empty<string>();
+        Assert.Equal("重命名：a → b", NotebookGit.DescribeChanges(new[] { "x/b.md" }, none, new[] { "x/a.md" }));
+        Assert.Equal("移动：读书笔记 → 工作/项目", NotebookGit.DescribeChanges(new[] { "工作/项目/读书笔记.md" }, none, new[] { "读书笔记.md" }));
+        Assert.Equal("移动：读书笔记 → 根目录", NotebookGit.DescribeChanges(new[] { "读书笔记.md" }, none, new[] { "工作/读书笔记.md" }));
+        Assert.Equal("重命名：a → 工作/b", NotebookGit.DescribeChanges(new[] { "工作/b.md" }, none, new[] { "a.md" }));
+        Assert.Equal("重命名：a → b", NotebookGit.DescribeChanges(new[] { "b.md" }, none, new[] { "x/a.md" }));
+        Assert.Equal(
+            "移动：会议记录 → 工作",
+            NotebookGit.DescribeChanges(new[] { "工作/会议记录/a.md", "工作/会议记录/img/b.png" }, none, new[] { "会议记录/a.md", "会议记录/img/b.png" }));
+        Assert.Equal(
+            "移动：会议记录 → 根目录",
+            NotebookGit.DescribeChanges(new[] { "会议记录/a.md", "会议记录/b.md" }, none, new[] { "工作/会议记录/a.md", "工作/会议记录/b.md" }));
+        // A folder renamed in place, files moved out of a folder one by one, or a move with edits: not a folder move.
+        Assert.Equal("更新 4 个文件：a、b", NotebookGit.DescribeChanges(new[] { "y/a.md", "y/b.md" }, none, new[] { "x/a.md", "x/b.md" }));
+        Assert.Equal("更新 4 个文件：a、b", NotebookGit.DescribeChanges(new[] { "工作/a.md", "工作/b.md" }, none, new[] { "a.md", "b.md" }));
+        Assert.Equal("更新 3 个文件：c、a", NotebookGit.DescribeChanges(new[] { "新/a.md" }, new[] { "c.md" }, new[] { "旧/a.md" }));
         Assert.Equal("更新 4 个文件：a、b、c 等", NotebookGit.DescribeChanges(new[] { "c.md", "d.md" }, new[] { "a.md", "b.md" }, Array.Empty<string>()));
         Assert.Null(NotebookGit.DescribeChanges(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()));
     }

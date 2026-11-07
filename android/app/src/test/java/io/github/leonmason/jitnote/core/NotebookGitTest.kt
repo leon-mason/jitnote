@@ -565,6 +565,27 @@ class NotebookGitTest {
         assertEquals("编辑：b", NotebookGit.describeChanges(emptySet(), setOf("x/b.md"), emptySet()))
         assertEquals("删除：c.txt", NotebookGit.describeChanges(emptySet(), emptySet(), setOf("c.txt")))
         assertEquals("重命名：a → b", NotebookGit.describeChanges(setOf("b.md"), emptySet(), setOf("a.md")))
+        assertEquals("重命名：a → b", NotebookGit.describeChanges(setOf("x/b.md"), emptySet(), setOf("x/a.md")))
+        assertEquals("移动：读书笔记 → 工作/项目", NotebookGit.describeChanges(setOf("工作/项目/读书笔记.md"), emptySet(), setOf("读书笔记.md")))
+        assertEquals("移动：读书笔记 → 根目录", NotebookGit.describeChanges(setOf("读书笔记.md"), emptySet(), setOf("工作/读书笔记.md")))
+        assertEquals("重命名：a → 工作/b", NotebookGit.describeChanges(setOf("工作/b.md"), emptySet(), setOf("a.md")))
+        assertEquals("重命名：a → b", NotebookGit.describeChanges(setOf("b.md"), emptySet(), setOf("x/a.md")))
+        assertEquals(
+            "移动：会议记录 → 工作",
+            NotebookGit.describeChanges(
+                setOf("工作/会议记录/a.md", "工作/会议记录/img/b.png"),
+                emptySet(),
+                setOf("会议记录/a.md", "会议记录/img/b.png"),
+            ),
+        )
+        assertEquals(
+            "移动：会议记录 → 根目录",
+            NotebookGit.describeChanges(setOf("会议记录/a.md", "会议记录/b.md"), emptySet(), setOf("工作/会议记录/a.md", "工作/会议记录/b.md")),
+        )
+        // A folder renamed in place, files moved out of a folder one by one, or a move with edits: not a folder move.
+        assertEquals("更新 4 个文件：a、b", NotebookGit.describeChanges(setOf("y/a.md", "y/b.md"), emptySet(), setOf("x/a.md", "x/b.md")))
+        assertEquals("更新 4 个文件：a、b", NotebookGit.describeChanges(setOf("工作/a.md", "工作/b.md"), emptySet(), setOf("a.md", "b.md")))
+        assertEquals("更新 3 个文件：c、a", NotebookGit.describeChanges(setOf("新/a.md"), setOf("c.md"), setOf("旧/a.md")))
         assertEquals(
             "更新 4 个文件：a、b、c 等",
             NotebookGit.describeChanges(setOf("c.md", "d.md"), setOf("a.md", "b.md"), emptySet()),

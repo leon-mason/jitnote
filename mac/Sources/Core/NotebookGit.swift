@@ -759,9 +759,7 @@ final class NotebookGit: @unchecked Sendable {
     static func describeChanges(added: [String], changed: [String], removed: [String]) -> String? {
         let total = added.count + changed.count + removed.count
         if total == 0 { return nil }
-        if added.count == 1 && removed.count == 1 && changed.isEmpty {
-            return "重命名：\(title(removed[0])) → \(title(added[0]))"
-        }
+        if changed.isEmpty, let move = describeMove(added: added, removed: removed) { return move }
         if total == 1 {
             if let path = added.first { return "新建：\(title(path))" }
             if let path = changed.first { return "编辑：\(title(path))" }
@@ -771,6 +769,51 @@ final class NotebookGit: @unchecked Sendable {
         for name in (changed + added + removed).map(title) where !names.contains(name) { names.append(name) }
         let more = names.count > 3 ? " 等" : ""
         return "更新 \(total) 个文件：\(names.prefix(3).joined(separator: "、"))\(more)"
+    }
+
+    /// "移动：…" or "重命名：…" when the only change is files that disappeared and reappeared elsewhere
+    /// (design.md「同步规则」). Without this a file moved to another folder would read as
+    /// "重命名：读书笔记 → 读书笔记". A folder that moved as a whole is recognised by its files keeping
+    /// their paths relative to it; anything else falls back to the generic summary.
+    private static func describeMove(added: [String], removed: [String]) -> String? {
+        if added.count == 1 && removed.count == 1 {
+            let from = removed[0], to = added[0]
+            let fromDir = directory(of: from), toDir = directory(of: to)
+            if fromDir == toDir { return "重命名：\(title(from)) → \(title(to))" }
+            if from.split(separator: "/").last == to.split(separator: "/").last {
+                return "移动：\(title(from)) → \(folderLabel(toDir))"
+            }
+            return "重命名：\(title(from)) → \(toDir.isEmpty ? "" : toDir + "/")\(title(to))"
+        }
+        guard added.count == removed.count, !added.isEmpty else { return nil }
+        let oldDir = commonDirectory(removed), newDir = commonDirectory(added)
+        var same = 0
+        while same < oldDir.count, same < newDir.count,
+              oldDir[oldDir.count - 1 - same] == newDir[newDir.count - 1 - same] { same += 1 }
+        if same == 0 { return nil }
+        func inside(_ paths: [String], _ dir: [String]) -> Set<String> {
+            Set(paths.map { $0.split(separator: "/").dropFirst(dir.count).joined(separator: "/") })
+        }
+        if inside(removed, oldDir) != inside(added, newDir) { return nil }
+        return "移动：\(oldDir[oldDir.count - same]) → \(folderLabel(newDir.prefix(newDir.count - same).joined(separator: "/")))"
+    }
+
+    private static func directory(of path: String) -> String {
+        path.split(separator: "/").dropLast().joined(separator: "/")
+    }
+
+    private static func folderLabel(_ dir: String) -> String { dir.isEmpty ? "根目录" : dir }
+
+    /// The deepest folder that contains every path (empty for the notebook root), as path components.
+    private static func commonDirectory(_ paths: [String]) -> [String] {
+        let dirs = paths.map { $0.split(separator: "/").dropLast().map(String.init) }
+        var common = dirs[0]
+        for dir in dirs {
+            var n = 0
+            while n < common.count, n < dir.count, common[n] == dir[n] { n += 1 }
+            common = Array(common.prefix(n))
+        }
+        return common
     }
 
     static func title(_ path: String) -> String {
