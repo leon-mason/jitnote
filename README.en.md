@@ -15,6 +15,8 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 - **Works with existing repositories**: use your Obsidian or Typora notes repository as-is. Existing files and image references are left untouched.
 
 > **Status**: early version. There is an Android client, a Mac client and a Windows 11 client. The UI is Chinese only. Feedback is welcome; please keep a backup of important notes on your computer.
+>
+> If GitHub is slow where you are, there is a mirror on Gitee: [gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote). The code is synced automatically; the installers are still only on GitHub Releases for now.
 
 ## Repository layout
 
@@ -140,6 +142,8 @@ The script opens an editor for the update notes (the app shows them in its updat
 - The script refuses to release when not on `main`, with uncommitted changes, when out of sync with GitHub, with no commits since the last release, or when `editor/` changed without a fresh `npm run build`.
 
 The release signing key is kept in the repository secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`). **Always sign with the same key**: an APK signed with a different key can't update an installed app.
+
+After every push to `main` or of a version tag, [`.github/workflows/mirror-gitee.yml`](.github/workflows/mirror-gitee.yml) copies them to the [Gitee mirror](https://gitee.com/shitoupapa/jitnote). It only moves forward and never force-pushes. It uses the `GITEE_TOKEN` secret: a personal access token of the Gitee account shitoupapa with the `projects` scope. When the token stops working, create a new one on Gitee and run `gh secret set GITEE_TOKEN --repo leon-mason/jitnote` to paste it in.
 
 ### Local test server for debug builds
 

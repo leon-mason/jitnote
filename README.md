@@ -15,6 +15,8 @@
 - **能用已有的仓库**：Obsidian、Typora 的笔记仓库可以直接拿来用，原有文件和图片写法原样保留。
 
 > **项目状态**：早期版本，有 Android 客户端、Mac 客户端和 Windows 11 客户端。欢迎试用和反馈，重要笔记请先在电脑上留一份备份。
+>
+> 国内访问 GitHub 慢，可以看 Gitee 镜像：[gitee.com/shitoupapa/jitnote](https://gitee.com/shitoupapa/jitnote)。代码自动同步，安装包目前仍只在 GitHub Releases。
 
 ## 仓库结构
 
@@ -140,6 +142,8 @@ scripts/release.sh
 - 脚本会拒绝这些情况：不在 `main`、有没提交的改动、和 GitHub 不一致、上次发版后没有新提交、改了 `editor/` 却没重新 `npm run build`。
 
 正式签名密钥保存在仓库的 Secrets（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`）里。**密钥必须一直用同一把**，换了密钥，已安装的 App 就无法更新。
+
+`main` 和版本标签每次推送后，[`.github/workflows/mirror-gitee.yml`](.github/workflows/mirror-gitee.yml) 会把它们同步到 [Gitee 镜像](https://gitee.com/shitoupapa/jitnote)，只前进、不强推。它用的是 Secrets 里的 `GITEE_TOKEN`：Gitee 账号 shitoupapa 的私人令牌，需要 `projects` 权限。令牌失效时，在 Gitee 重新生成一个，再运行 `gh secret set GITEE_TOKEN --repo leon-mason/jitnote` 粘贴进去。
 
 ### 调试构建的本地测试服务器
 

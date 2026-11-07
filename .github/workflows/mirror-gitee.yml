@@ -1,0 +1,41 @@
+# Mirrors main and the version tags to https://gitee.com/shitoupapa/jitnote, so people in China can
+# read and clone the code without reaching GitHub. Only the code: release assets are not copied here.
+name: Mirror to Gitee
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# A commit and its release tag are pushed together; their two runs must not push to Gitee at once.
+concurrency:
+  group: mirror-gitee
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # checkout turns annotated tags into lightweight ones; fetch them again so Gitee gets the
+      # same tag objects (with their release notes) as GitHub.
+      - name: Fetch the real tags
+        run: git fetch --force origin '+refs/tags/*:refs/tags/*'
+
+      # GITEE_TOKEN is a personal access token of the Gitee account shitoupapa with the projects scope.
+      # No --force: the mirror only moves forward. A rejected push means someone changed the Gitee
+      # copy by hand; look at it instead of overwriting it.
+      - name: Push main and tags to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::Secret GITEE_TOKEN is missing. Create a Gitee personal access token with the projects scope, then run: gh secret set GITEE_TOKEN --repo leon-mason/jitnote"
+            exit 1
+          fi
+          git push "https://shitoupapa:${GITEE_TOKEN}@gitee.com/shitoupapa/jitnote.git" \
+            "refs/remotes/origin/main:refs/heads/main" 'refs/tags/v*:refs/tags/v*'
