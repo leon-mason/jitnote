@@ -26,9 +26,9 @@ Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private
 | [`mac/`](mac/) | Mac client (Swift + SwiftUI + [libgit2](https://libgit2.org/)) |
 | [`windows/`](windows/) | Windows 11 client (C# / .NET + Avalonia + [LibGit2Sharp](https://github.com/libgit2/libgit2sharp)) |
 | [`editor/`](editor/) | Note editor shared by all clients ([Milkdown](https://milkdown.dev/) Crepe, bundled as an offline web page embedded in the app) |
-| [`docs/`](docs/) | Design notes (in Chinese) |
+| [`docs/`](docs/) | The logo (`scripts/make-icons.py` makes every app icon from it) |
 
-Future clients such as iOS will live in this repository too, reuse `editor/`, and follow the same sync rules (see [docs/design.md](docs/design.md)).
+Future clients such as iOS will live in this repository too, reuse `editor/`, and follow the same sync rules.
 
 ## Usage (Android)
 
@@ -102,7 +102,7 @@ scripts/build-mac.sh --test   # sync engine and other tests (the same cases as A
 scripts/build-mac.sh --run    # builds mac/build/Jitnote.app and opens it
 ```
 
-`--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain. Design: [Mac client design](docs/requirements/2026-10-31-mac-client/[spec]mac-client.md) (in Chinese).
+`--debug` builds a version with a test-only remote control (see [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)) for driving and photographing the window on machines without screen-recording access; it keeps tokens in a file and never touches the keychain.
 
 ### Windows
 
@@ -151,7 +151,7 @@ Debug builds allow cleartext HTTP to the emulator host `10.0.2.2` (see `android/
 
 ## Contributing
 
-Issues and pull requests are welcome. Before changing the sync logic or the editor, please read [docs/design.md](docs/design.md). A few rules are firm: no Git jargon in the UI, never force-push, and opening then saving a note must not change it. The related tests must keep passing.
+Issues and pull requests are welcome. When changing the sync logic or the editor, a few rules are firm: no Git jargon in the UI, never force-push, and opening then saving a note must not change it. The related tests must keep passing.
 
 ## License
 

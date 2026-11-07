@@ -26,9 +26,9 @@
 | [`mac/`](mac/) | Mac 客户端（Swift + SwiftUI + [libgit2](https://libgit2.org/)） |
 | [`windows/`](windows/) | Windows 11 客户端（C# / .NET + Avalonia + [LibGit2Sharp](https://github.com/libgit2/libgit2sharp)） |
 | [`editor/`](editor/) | 所有客户端共用的笔记编辑器（[Milkdown](https://milkdown.dev/) Crepe，打包成离线网页嵌入 App） |
-| [`docs/`](docs/) | 设计说明 |
+| [`docs/`](docs/) | logo（`scripts/make-icons.py` 用它生成各端图标） |
 
-以后的 iOS 等客户端也放在这个仓库里，复用 `editor/`，并遵循同一套同步规则（见 [docs/design.md](docs/design.md)）。
+以后的 iOS 等客户端也放在这个仓库里，复用 `editor/`，并遵循同一套同步规则。
 
 ## 使用方法（Android）
 
@@ -102,7 +102,7 @@ scripts/build-mac.sh --test   # 同步引擎等测试（和 Android 的测试用
 scripts/build-mac.sh --run    # 构建 mac/build/Jitnote.app 并打开
 ```
 
-`--debug` 构建带测试用遥控的版本（见 [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)），用来在没有屏幕录制权限的机器上自动操作和截图；它的令牌存在文件里，不碰钥匙串。设计见 [Mac 客户端设计](docs/requirements/2026-10-31-mac-client/[spec]mac-client.md)。
+`--debug` 构建带测试用遥控的版本（见 [`DebugHooks.swift`](mac/Sources/UI/DebugHooks.swift)），用来在没有屏幕录制权限的机器上自动操作和截图；它的令牌存在文件里，不碰钥匙串。
 
 ### Windows
 
@@ -151,7 +151,7 @@ debug 包允许用明文 http 访问模拟器宿主机 `10.0.2.2`（见 `android
 
 ## 参与贡献
 
-欢迎提 Issue 和 Pull Request。改动同步逻辑或编辑器前，请先读 [docs/design.md](docs/design.md)：界面不出现 Git 术语、从不强推、打开再保存不改变笔记，这几条是硬性约定，相关测试需要保持通过。
+欢迎提 Issue 和 Pull Request。改动同步逻辑或编辑器时请注意：界面不出现 Git 术语、从不强推、打开再保存不改变笔记，这几条是硬性约定，相关测试需要保持通过。
 
 ## 许可证
 
