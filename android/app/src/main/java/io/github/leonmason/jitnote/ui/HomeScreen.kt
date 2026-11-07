@@ -1,6 +1,8 @@
 package io.github.leonmason.jitnote.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,8 +10,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -36,7 +41,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,14 +52,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.leonmason.jitnote.data.AppUpdates
+import io.github.leonmason.jitnote.data.BrokenImageCheck
 import io.github.leonmason.jitnote.data.FileTree
 import io.github.leonmason.jitnote.data.NoteAssets
 import io.github.leonmason.jitnote.data.NoteFiles
@@ -62,7 +76,9 @@ import io.github.leonmason.jitnote.data.Notebook
 import io.github.leonmason.jitnote.data.Notebooks
 import io.github.leonmason.jitnote.data.SyncState
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -138,6 +154,14 @@ private fun NotesHome(
     var creatingFolderIn by remember { mutableStateOf<String?>(null) }
     var renaming by remember { mutableStateOf<File?>(null) }
     var deleting by remember { mutableStateOf<File?>(null) }
+    // The notebook-relative path being chosen a folder for by "移动到…".
+    var moving by remember { mutableStateOf<String?>(null) }
+    // Why a move did not happen, or what the user has to confirm before it does.
+    var moveNotice by remember { mutableStateOf<MoveNotice?>(null) }
+    // A row being dragged, and where the finger is, relative to the list.
+    var dragging by remember { mutableStateOf<String?>(null) }
+    var finger by remember { mutableStateOf<Offset?>(null) }
+    var listOrigin by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(notebook.id, sort, showHidden, refresh, syncState) {
         if (syncState == SyncState.Running) return@LaunchedEffect
@@ -177,6 +201,75 @@ private fun NotesHome(
     // New things go in the highlighted folder, or next to the highlighted file.
     val here = FileTree.currentFolder(tree.orEmpty(), highlighted)
 
+    // Checks a move before it happens (design.md「首页」): the name must be free in the target folder, and if
+    // notes would lose their pictures the user is asked first. The picker and dragging both come through here.
+    fun performMove(source: String, folder: String) {
+        scope.launch {
+            try {
+                // Under the notebook's lock, so it can't happen in the middle of a sync.
+                val moved = notebooks.withLock(notebook) { NoteFiles.move(File(root, source), if (folder.isEmpty()) root else File(root, folder)) }
+                val new = NoteFiles.relativePath(root, moved)
+                // The target folder opens (it is above the new path), so the item is seen where it landed.
+                setExpanded(FileTree.renamed(expanded, source, new) + FileTree.ancestors(new))
+                nav.highlighted[notebook.id] = new
+                refresh++
+                notebooks.refreshUnsynced(notebook)
+            } catch (e: IllegalArgumentException) {
+                moveNotice = MoveNotice.Failed(e.message ?: "移动失败")
+            }
+        }
+    }
+
+    fun requestMove(source: String, folder: String) {
+        if (!FileTree.canMove(source, folder)) return
+        if (File(if (folder.isEmpty()) root else File(root, folder), source.substringAfterLast('/')).exists()) {
+            moveNotice = MoveNotice.Failed("目标文件夹里已有同名文件")
+            return
+        }
+        scope.launch {
+            val broken = withContext(Dispatchers.IO) { BrokenImageCheck.notes(root, source, folder) }
+            if (broken.isEmpty()) performMove(source, folder) else moveNotice = MoveNotice.BrokenImages(broken.size, source, folder)
+        }
+    }
+
+    // The row under the finger while dragging: item offsets are in content coordinates, the finger in the list's own,
+    // and the content starts after the top padding (viewportStartOffset is minus that padding).
+    val layout = listState.layoutInfo
+    val rowUnderFinger = finger?.takeIf { dragging != null }?.let { point ->
+        val contentY = point.y + layout.viewportStartOffset
+        layout.visibleItemsInfo.firstOrNull { it.key is String && contentY >= it.offset && contentY < it.offset + it.size }?.key as? String
+    }
+    // Where a row dropped now would go: a folder itself, a file's folder, the root for empty space. Null when that does nothing.
+    val dropFolder = dragging?.let { source ->
+        finger?.let { FileTree.currentFolder(tree.orEmpty(), rowUnderFinger.orEmpty()).takeIf { folder -> FileTree.canMove(source, folder) } }
+    }
+
+    // A dragged row opens a closed folder after resting on it for a second (design.md「首页」).
+    val expandedNow by rememberUpdatedState(expanded)
+    val resting = rowUnderFinger?.takeIf { path -> FileTree.find(tree.orEmpty(), path)?.isFolder == true && path !in expanded }
+    LaunchedEffect(resting) {
+        if (resting != null) {
+            delay(1000)
+            notebooks.setExpandedFolders(notebook.id, expandedNow + resting)
+        }
+    }
+
+    // Dragging near the top or bottom edge of the list scrolls it.
+    val edge = with(LocalDensity.current) { 56.dp.toPx() }
+    val scrollDirection = finger?.takeIf { dragging != null }?.let { point ->
+        when {
+            point.y < layout.beforeContentPadding + edge -> -1
+            point.y > layout.viewportSize.height - edge -> 1
+            else -> 0
+        }
+    } ?: 0
+    LaunchedEffect(scrollDirection) {
+        while (scrollDirection != 0) {
+            listState.scrollBy(scrollDirection * 18f)
+            delay(16)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -198,6 +291,13 @@ private fun NotesHome(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { listOrigin = it.positionInWindow() }
+                // Dropping on empty space moves to the notebook root, so the whole list is the target then.
+                .then(if (dropFolder == "") Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier),
+        ) {
         LazyColumn(
             state = listState,
             contentPadding = PaddingValues(
@@ -227,10 +327,75 @@ private fun NotesHome(
                     onClick = { onRowClick(row.entry) },
                     onHistory = { nav.push(Screen.History(notebook.id, path)) },
                     onRename = { renaming = File(root, path) },
+                    onMove = { moving = path },
                     onDelete = { deleting = File(root, path) },
                     onNewNoteHere = { creatingNoteIn = path },
                     onNewFolderHere = { creatingFolderIn = path },
+                    isDragged = dragging == path,
+                    isDropTarget = dropFolder == path,
+                    onDragStart = { dragging = path },
+                    onDragMove = { finger = it - listOrigin },
+                    onDragEnd = {
+                        val source = dragging
+                        val target = dropFolder
+                        dragging = null
+                        finger = null
+                        if (source != null && target != null) requestMove(source, target)
+                    },
+                    onDragCancel = {
+                        dragging = null
+                        finger = null
+                    },
                 )
+            }
+        }
+        // The dragged row's name follows the finger.
+        dragging?.let { source ->
+            finger?.let { point ->
+                val lift = with(LocalDensity.current) { 48.dp.toPx() }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.offset { IntOffset(24.dp.roundToPx(), (point.y - lift).roundToInt()) },
+                ) {
+                    Text(source.substringAfterLast('/'), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), maxLines = 1)
+                }
+            }
+        }
+        }
+    }
+
+    moving?.let { source ->
+        val isFolder = File(root, source).isDirectory
+        MoveTargetSheet(
+            name = if (isFolder) source.substringAfterLast('/') else File(source).nameWithoutExtension,
+            source = source,
+            tree = tree.orEmpty(),
+            onDismiss = { moving = null },
+            onMove = { folder ->
+                moving = null
+                requestMove(source, folder)
+            },
+        )
+    }
+
+    moveNotice?.let { notice ->
+        when (notice) {
+            is MoveNotice.Failed -> AlertDialog(
+                onDismissRequest = { moveNotice = null },
+                title = { Text("无法移动") },
+                text = { Text(notice.message) },
+                confirmButton = { TextButton(onClick = { moveNotice = null }) { Text("好") } },
+            )
+            is MoveNotice.BrokenImages -> ConfirmDialog(
+                title = "移动后图片会找不到",
+                text = "移动后，${notice.count} 篇笔记里的图片会找不到",
+                confirmLabel = "仍然移动",
+                onDismiss = { moveNotice = null },
+            ) {
+                moveNotice = null
+                performMove(notice.source, notice.folder)
             }
         }
     }
@@ -325,6 +490,14 @@ private fun NotesHome(
             }
         }
     }
+}
+
+/** Why a move did not happen, or what the user has to confirm before it does. */
+private sealed interface MoveNotice {
+    class Failed(val message: String) : MoveNotice
+
+    /** [count] notes would lose pictures; going ahead moves [source] into [folder]. */
+    class BrokenImages(val count: Int, val source: String, val folder: String) : MoveNotice
 }
 
 /** The notebook name in the top bar; tapping it lists the other notebooks and the way to manage them. */
