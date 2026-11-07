@@ -143,7 +143,7 @@ scripts/release.sh
 
 正式签名密钥保存在仓库的 Secrets（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`）里。**密钥必须一直用同一把**，换了密钥，已安装的 App 就无法更新。
 
-`main` 和版本标签每次推送后，[`.github/workflows/mirror-gitee.yml`](.github/workflows/mirror-gitee.yml) 会把它们同步到 [Gitee 镜像](https://gitee.com/shitoupapa/jitnote)，只前进、不强推。它用的是 Secrets 里的 `GITEE_TOKEN`：Gitee 账号 shitoupapa 的私人令牌，需要 `projects` 权限。令牌失效时，在 Gitee 重新生成一个，再运行 `gh secret set GITEE_TOKEN --repo leon-mason/jitnote` 粘贴进去。
+[Gitee 镜像](https://gitee.com/shitoupapa/jitnote)用的是 Gitee 自带的「仓库镜像管理」：由 Gitee 从 GitHub 拉取分支、标签和提交，本仓库不需要做任何事。不在 GitHub Actions 里推送到 Gitee，因为 GitHub 的服务器连不上 gitee.com（连接超时）。同步停了，就到 Gitee 仓库的「管理 → 仓库镜像管理」里看看，必要时手动点一次更新。
 
 ### 调试构建的本地测试服务器
 

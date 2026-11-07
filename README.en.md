@@ -143,7 +143,7 @@ The script opens an editor for the update notes (the app shows them in its updat
 
 The release signing key is kept in the repository secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`). **Always sign with the same key**: an APK signed with a different key can't update an installed app.
 
-After every push to `main` or of a version tag, [`.github/workflows/mirror-gitee.yml`](.github/workflows/mirror-gitee.yml) copies them to the [Gitee mirror](https://gitee.com/shitoupapa/jitnote). It only moves forward and never force-pushes. It uses the `GITEE_TOKEN` secret: a personal access token of the Gitee account shitoupapa with the `projects` scope. When the token stops working, create a new one on Gitee and run `gh secret set GITEE_TOKEN --repo leon-mason/jitnote` to paste it in.
+The [Gitee mirror](https://gitee.com/shitoupapa/jitnote) uses Gitee's own repository mirroring: Gitee pulls the branches, tags and commits from GitHub, and nothing in this repository is involved. Pushing to Gitee from GitHub Actions doesn't work, because GitHub's runners cannot reach gitee.com (the connection times out). If the mirror stops updating, check "管理 → 仓库镜像管理" in the Gitee repository and trigger an update by hand if needed.
 
 ### Local test server for debug builds
 
