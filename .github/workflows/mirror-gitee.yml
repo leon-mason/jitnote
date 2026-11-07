@@ -16,6 +16,8 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    # A stalled connection to Gitee otherwise hangs until the 6-hour job limit.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,6 +27,10 @@ jobs:
       # same tag objects (with their release notes) as GitHub.
       - name: Fetch the real tags
         run: git fetch --force origin '+refs/tags/*:refs/tags/*'
+
+      # Tells "cannot reach Gitee" apart from a failing push, without sending the token.
+      - name: Check Gitee is reachable
+        run: curl -sS -o /dev/null --max-time 60 -w 'Gitee answered %{http_code} in %{time_total}s\n' https://gitee.com/api/v5/repos/shitoupapa/jitnote
 
       # GITEE_TOKEN is a personal access token of the Gitee account shitoupapa with the projects scope.
       # No --force: the mirror only moves forward. A rejected push means someone changed the Gitee
@@ -37,5 +43,7 @@ jobs:
             echo "::error::Secret GITEE_TOKEN is missing. Create a Gitee personal access token with the projects scope, then run: gh secret set GITEE_TOKEN --repo leon-mason/jitnote"
             exit 1
           fi
-          git push "https://shitoupapa:${GITEE_TOKEN}@gitee.com/shitoupapa/jitnote.git" \
+          # Give up when the upload stays under 1 KB/s for a minute, instead of waiting silently.
+          git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 push --progress \
+            "https://shitoupapa:${GITEE_TOKEN}@gitee.com/shitoupapa/jitnote.git" \
             "refs/remotes/origin/main:refs/heads/main" 'refs/tags/v*:refs/tags/v*'
