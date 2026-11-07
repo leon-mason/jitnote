@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # 让这台电脑上的 git push 同时推到 GitHub 和 Gitee 镜像（gitee.com/shitoupapa/jitnote）。
-# GitHub 的服务器连不上 gitee.com：GitHub Actions 推不过去，Gitee 镜像的 WebHook 也收不到推送通知，
-# 所以改由推送代码的这台电脑顺手推一份。
+# GitHub 的服务器连 gitee.com 很不稳定（2026-11-07 实测：GitHub Actions 两次都连接超时，
+# Gitee 镜像的 WebHook 通知三次只成功一次），所以改由推送代码的这台电脑顺手推一份。
 #
 # 用法：
 #   scripts/setup-gitee-mirror.sh          配置；重复运行没关系
