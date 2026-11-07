@@ -168,6 +168,78 @@ enum NoteAssetsTests {
     ]
 }
 
+enum BrokenImageCheckTests {
+    static func notebook(_ root: URL) throws -> URL {
+        let book = root.appendingPathComponent("notebook")
+        let files: [(String, String)] = [
+            ("笔记/a.md", "![封面](img/a.png)"),
+            ("笔记/img/a.png", "x"),
+            ("日志/b.md", "![](../笔记/img/a.png)"),
+            ("c.md", "![](/笔记/img/a.png)"),
+            ("d.md", "![](https://example.com/x.png) ![[a.png]] ![](missing.png)"),
+            ("e.md", "![](my%20photo.png) ![](<my photo.png>)"),
+            ("my photo.png", "x"),
+            ("g.md", "```\n![](root.png)\n```"),
+            ("root.png", "x"),
+        ]
+        for (path, text) in files { try write(book, path, text) }
+        return book
+    }
+
+    static func broken(_ book: URL, _ source: String, _ target: String) -> [String] {
+        BrokenImageCheck.notes(root: book, moving: source, to: target)
+    }
+
+    static let all: [TestCase] = [
+        TestCase("aNoteMovedAwayFromItsImages") { root in
+            let book = try notebook(root)
+            try expectEqual(broken(book, "笔记/a.md", "工作"), ["笔记/a.md"])
+        },
+        TestCase("aFolderMovedTogetherWithItsImages") { root in
+            let book = try notebook(root)
+            // Only the notes that point into the folder from outside lose their image.
+            try expectEqual(broken(book, "笔记", "工作"), ["c.md", "日志/b.md"])
+            try expectEqual(broken(book, "笔记", ""), [])
+        },
+        TestCase("anImageMovedAwayFromItsNotes") { root in
+            let book = try notebook(root)
+            try expectEqual(broken(book, "笔记/img/a.png", ""), ["c.md", "日志/b.md", "笔记/a.md"])
+            try expectEqual(broken(book, "my photo.png", "工作"), ["e.md"])
+        },
+        TestCase("parentFolderReferencesAreFollowed") { root in
+            let book = try notebook(root)
+            try expectEqual(broken(book, "日志/b.md", "工作"), [])
+            try expectEqual(broken(book, "日志/b.md", "笔记"), [])
+            try expectEqual(broken(book, "日志/b.md", "工作/深"), ["日志/b.md"])
+            try expectEqual(broken(book, "c.md", "笔记"), [])
+        },
+        TestCase("encodedAndBracketedPathsCountOncePerNote") { root in
+            let book = try notebook(root)
+            try expectEqual(broken(book, "e.md", "工作"), ["e.md"])
+        },
+        TestCase("onlyReferencesThatWorkedBeforeCount") { root in
+            let book = try notebook(root)
+            try expectEqual(broken(book, "d.md", "工作"), [])
+            try expectEqual(broken(book, "root.png", "工作"), [])
+        },
+        TestCase("readsOnly") { root in
+            let book = try notebook(root)
+            func snapshot() throws -> [String: String] {
+                var all: [String: String] = [:]
+                let walker = FileManager.default.enumerator(at: book, includingPropertiesForKeys: [.isRegularFileKey])
+                while let url = walker?.nextObject() as? URL {
+                    guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+                    all[url.path] = try String(contentsOf: url, encoding: .utf8)
+                }
+                return all
+            }
+            let before = try snapshot()
+            _ = broken(book, "笔记", "工作")
+            try expect(try snapshot() == before)
+        },
+    ]
+}
+
 enum AppUpdatesTests {
     static let all: [TestCase] = [
         TestCase("comparesVersionsNumerically") { _ in

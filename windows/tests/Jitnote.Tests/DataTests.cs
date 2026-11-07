@@ -153,6 +153,75 @@ public class NoteTests : IDisposable
         Assert.False(NoteAssets.IsImage("note.md"));
     }
 
+    string ImageNotebook()
+    {
+        var book = Path.Combine(root, "notebook");
+        Write(book, "笔记/a.md", "![封面](img/a.png)");
+        Write(book, "笔记/img/a.png", "x");
+        Write(book, "日志/b.md", "![](../笔记/img/a.png)");
+        Write(book, "c.md", "![](/笔记/img/a.png)");
+        Write(book, "d.md", "![](https://example.com/x.png) ![[a.png]] ![](missing.png)");
+        Write(book, "e.md", "![](my%20photo.png) ![](<my photo.png>)");
+        Write(book, "my photo.png", "x");
+        Write(book, "g.md", "```\n![](root.png)\n```");
+        Write(book, "root.png", "x");
+        return book;
+    }
+
+    [Fact]
+    public void BrokenImagesWhenANoteMovesAwayFromItsImages()
+    {
+        var book = ImageNotebook();
+        Assert.Equal(new[] { "笔记/a.md" }, BrokenImageCheck.Notes(book, "笔记/a.md", "工作"));
+    }
+
+    [Fact]
+    public void BrokenImagesWhenAFolderMovesTogetherWithItsImages()
+    {
+        var book = ImageNotebook();
+        // Only the notes that point into the folder from outside lose their image.
+        Assert.Equal(new[] { "c.md", "日志/b.md" }, BrokenImageCheck.Notes(book, "笔记", "工作"));
+        Assert.Empty(BrokenImageCheck.Notes(book, "笔记", ""));
+    }
+
+    [Fact]
+    public void BrokenImagesWhenAnImageMovesAwayFromItsNotes()
+    {
+        var book = ImageNotebook();
+        Assert.Equal(new[] { "c.md", "日志/b.md", "笔记/a.md" }, BrokenImageCheck.Notes(book, "笔记/img/a.png", ""));
+        Assert.Equal(new[] { "e.md" }, BrokenImageCheck.Notes(book, "my photo.png", "工作"));
+    }
+
+    [Fact]
+    public void BrokenImagesFollowParentFolderReferences()
+    {
+        var book = ImageNotebook();
+        Assert.Empty(BrokenImageCheck.Notes(book, "日志/b.md", "工作"));
+        Assert.Empty(BrokenImageCheck.Notes(book, "日志/b.md", "笔记"));
+        Assert.Equal(new[] { "日志/b.md" }, BrokenImageCheck.Notes(book, "日志/b.md", "工作/深"));
+        Assert.Empty(BrokenImageCheck.Notes(book, "c.md", "笔记"));
+    }
+
+    [Fact]
+    public void BrokenImagesCountOncePerNoteAndOnlyIfTheyWorkedBefore()
+    {
+        var book = ImageNotebook();
+        Assert.Equal(new[] { "e.md" }, BrokenImageCheck.Notes(book, "e.md", "工作"));
+        Assert.Empty(BrokenImageCheck.Notes(book, "d.md", "工作"));
+        Assert.Empty(BrokenImageCheck.Notes(book, "root.png", "工作"));
+    }
+
+    [Fact]
+    public void BrokenImageCheckReadsOnly()
+    {
+        var book = ImageNotebook();
+        Dictionary<string, string> Snapshot() =>
+            Directory.EnumerateFiles(book, "*", SearchOption.AllDirectories).ToDictionary(file => file, File.ReadAllText);
+        var before = Snapshot();
+        BrokenImageCheck.Notes(book, "笔记", "工作");
+        Assert.Equal(before, Snapshot());
+    }
+
     [Fact]
     public void AnUneditedNoteIsNeverWritten()
     {

@@ -36,6 +36,7 @@ enum TestRunner {
             ("NoteIndex", NoteIndexTests.all),
             ("FileTree", FileTreeTests.all),
             ("NoteAssets", NoteAssetsTests.all),
+            ("BrokenImageCheck", BrokenImageCheckTests.all),
             ("AppUpdates", AppUpdatesTests.all),
             ("HostingApi", HostingApiTests.all),
         ]
