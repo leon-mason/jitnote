@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// What the window opens to: the current notebook, or the first steps when there is none yet.
 struct MainView: View {
@@ -146,6 +147,8 @@ struct NotebookView: View {
                         Task { await bridge.flush() }
                         deleting = root.appendingPathComponent(path)
                     },
+                    onDropMove: requestMove,
+                    onHoverOpen: { notebooks.setExpandedFolders(notebook.id, expanded.union([$0])) },
                     onSync: sync,
                     addingNotebook: $addingNotebook)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
@@ -742,6 +745,10 @@ private struct Sidebar: View {
     let onRename: (String) -> Void
     let onMove: (String) -> Void
     let onDelete: (String) -> Void
+    /// A row was dropped: what moves, and the folder it goes to ("" for the notebook root).
+    let onDropMove: (String, String) -> Void
+    /// A dragged row rested on a closed folder long enough to open it.
+    let onHoverOpen: (String) -> Void
     let onSync: () -> Void
     @Binding var addingNotebook: Bool
 
@@ -749,6 +756,23 @@ private struct Sidebar: View {
     @Environment(\.openSettings) private var openSettings
 
     private static let indent: CGFloat = 14
+    /// Dragging near the top or bottom edge of the list scrolls it; the strip that counts, in points.
+    private static let scrollEdge: CGFloat = 28
+    /// A dragged row opens a closed folder after resting on it this long (design.md「首页」).
+    private static let hoverOpenDelay: Duration = .seconds(1)
+
+    /// Path of the row being dragged; nil when nothing is. Set when a drag starts, cleared when it ends.
+    @State private var dragging: String?
+    /// The folder the dragged row would land in ("" for the root), or nil when dropping here does nothing.
+    @State private var dropFolder: String?
+    /// Where each drawn row is, in the scroll view's own space, to tell which row the pointer is over.
+    /// Kept in a plain object: the frames change on every scroll step and nothing on screen depends on them,
+    /// so storing them in @State would redraw the whole list while scrolling.
+    @State private var frames = RowFrameBox()
+    private var rowFrames: [String: CGRect] { frames.value }
+    @State private var listHeight: CGFloat = 0
+    @State private var hoverOpening: (path: String, task: Task<Void, Never>)?
+    @State private var autoScroll: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -798,17 +822,133 @@ private struct Sidebar: View {
             // Drawn by hand rather than with List or OutlineGroup: List(selection:) says nothing when
             // the selected row is tapped again (a folder could not be closed), and OutlineGroup's
             // open state cannot be controlled from outside.
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(FileTree.visibleRows(tree, expanded: expanded)) { row in
-                        self.row(row)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(FileTree.visibleRows(tree, expanded: expanded)) { row in
+                            self.row(row)
+                        }
                     }
+                    .padding(.horizontal, 6)
                 }
-                .padding(.horizontal, 6)
+                .coordinateSpace(name: Self.listSpace)
+                .onPreferenceChange(RowFrames.self) { frames.value = $0 }
+                .background(GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.size.height, initial: true) { _, height in listHeight = height }
+                })
+                .contentShape(Rectangle())
+                .onTapGesture { highlighted = "" }
+                // One drop target for the whole list: which row the pointer is over decides the folder, and
+                // empty space below the rows means the notebook root.
+                .onDrop(of: [Self.dragType], delegate: TreeDrop(
+                    accepts: { dragging != nil },
+                    over: { point in dragOver(point, proxy: proxy) },
+                    leave: stopDragFeedback,
+                    drop: { point in dropped(at: point) }))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 2).opacity(dropFolder == "" ? 1 : 0).allowsHitTesting(false))
             }
-            .contentShape(Rectangle())
-            .onTapGesture { highlighted = "" }
         }
+    }
+
+    private static let listSpace = "file-tree-list"
+    private static let dragType = UTType("io.github.leonmason.jitnote.tree-item")!
+
+    private final class RowFrameBox {
+        var value: [String: CGRect] = [:]
+    }
+
+    private struct RowFrames: PreferenceKey {
+        static let defaultValue: [String: CGRect] = [:]
+        static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+            value.merge(nextValue()) { $1 }
+        }
+    }
+
+    /// Reports the drag's position to the sidebar; see `TreeDrop`.
+    private struct TreeDrop: DropDelegate {
+        let accepts: () -> Bool
+        let over: (CGPoint) -> Bool
+        let leave: () -> Void
+        let drop: (CGPoint) -> Bool
+
+        func validateDrop(info: DropInfo) -> Bool { accepts() }
+        func dropEntered(info: DropInfo) { _ = over(info.location) }
+        func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: over(info.location) ? .move : .forbidden) }
+        func dropExited(info: DropInfo) { leave() }
+        func performDrop(info: DropInfo) -> Bool { drop(info.location) }
+    }
+
+    /// The folder a row dropped at [point] goes to: a folder itself, a file's folder, the root for empty space.
+    private func folder(at point: CGPoint) -> String {
+        let row = rowFrames.first { $0.value.contains(point) }?.key
+        return FileTree.currentFolder(tree, highlighted: row ?? "")
+    }
+
+    /// Updates the drop highlight, the open-after-resting timer and edge scrolling. True if a drop here would move.
+    private func dragOver(_ point: CGPoint, proxy: ScrollViewProxy) -> Bool {
+        guard let dragging else { return false }
+        let target = folder(at: point)
+        let allowed = FileTree.canMove(dragging, into: target)
+        dropFolder = allowed ? target : nil
+
+        let overRow = rowFrames.first { $0.value.contains(point) }?.key
+        if let overRow, let entry = FileTree.find(tree, path: overRow), entry.isFolder, !expanded.contains(overRow) {
+            if hoverOpening?.path != overRow {
+                hoverOpening?.task.cancel()
+                let task = Task {
+                    try? await Task.sleep(for: Self.hoverOpenDelay)
+                    if !Task.isCancelled { onHoverOpen(overRow) }
+                }
+                hoverOpening = (overRow, task)
+            }
+        } else {
+            hoverOpening?.task.cancel()
+            hoverOpening = nil
+        }
+
+        let direction = point.y < Self.scrollEdge ? -1 : (point.y > listHeight - Self.scrollEdge ? 1 : 0)
+        if direction == 0 {
+            autoScroll?.cancel()
+            autoScroll = nil
+        } else if autoScroll == nil {
+            autoScroll = Task {
+                while !Task.isCancelled {
+                    scrollOneRow(direction, proxy: proxy)
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
+            }
+        }
+        return allowed
+    }
+
+    /// Brings the row just past the top (or bottom) edge into view.
+    private func scrollOneRow(_ direction: Int, proxy: ScrollViewProxy) {
+        let rows = FileTree.visibleRows(tree, expanded: expanded)
+        if direction < 0 {
+            guard let first = rows.firstIndex(where: { (rowFrames[$0.id]?.maxY ?? -1) > 0 }), first > 0 else { return }
+            withAnimation(.linear(duration: 0.1)) { proxy.scrollTo(rows[first - 1].id, anchor: .top) }
+        } else {
+            guard let last = rows.lastIndex(where: { (rowFrames[$0.id]?.minY ?? .infinity) < listHeight }), last < rows.count - 1 else { return }
+            withAnimation(.linear(duration: 0.1)) { proxy.scrollTo(rows[last + 1].id, anchor: .bottom) }
+        }
+    }
+
+    private func stopDragFeedback() {
+        dropFolder = nil
+        hoverOpening?.task.cancel()
+        hoverOpening = nil
+        autoScroll?.cancel()
+        autoScroll = nil
+    }
+
+    private func dropped(at point: CGPoint) -> Bool {
+        let target = folder(at: point)
+        let source = dragging
+        dragging = nil
+        stopDragFeedback()
+        guard let source, FileTree.canMove(source, into: target) else { return false }
+        onDropMove(source, target)
+        return true
     }
 
     private var notebookMenu: some View {
@@ -875,9 +1015,24 @@ private struct Sidebar: View {
         .padding(.leading, CGFloat(row.depth) * Self.indent + 4)
         .padding(.trailing, 6)
         .padding(.vertical, 4)
-        .background(highlighted == entry.path ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(dropFolder == entry.path ? Color.accentColor.opacity(0.4)
+                    : highlighted == entry.path ? Color.accentColor.opacity(0.25) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: RowFrames.self, value: [entry.path: geometry.frame(in: .named(Self.listSpace))])
+        })
         .contentShape(Rectangle())
         .onTapGesture { onTap(entry) }
+        // Offered to this app only (ownProcess), so a row can't be dropped into Finder or another app.
+        .onDrag {
+            dragging = entry.path
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(for: Self.dragType, visibility: .ownProcess) { completion in
+                completion(Data(entry.path.utf8), nil)
+                return nil
+            }
+            return provider
+        }
         .accessibilityAddTraits(.isButton)
         .contextMenu { menu(entry) }
     }
