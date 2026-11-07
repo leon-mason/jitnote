@@ -529,8 +529,7 @@ public sealed class Session
         var version = AppVersion();
         try
         {
-            using var http = new HttpClient();
-            var release = await AppUpdates.Latest(http, version);
+            var release = await AppUpdates.Latest(version);
             State.LastUpdateCheckAt = AppJson.NowMillis();
             SaveState();
             if (release == null && manual) return (null, "已是最新版本");
@@ -538,7 +537,7 @@ public sealed class Session
         }
         catch
         {
-            return (null, manual ? "连不上 GitHub，请检查网络后再试。" : null);
+            return (null, manual ? "检查更新没有成功，请检查网络后再试。" : null);
         }
     }
 
@@ -546,8 +545,7 @@ public sealed class Session
 
     public async Task<string> DownloadUpdate(AppRelease release, IProgress<long>? progress, CancellationToken cancel)
     {
-        using var http = new HttpClient();
-        return await AppUpdates.Download(http, release, progress, cancel);
+        return await AppUpdates.Download(release, progress, cancel);
     }
 
     public static void Reveal(string path)

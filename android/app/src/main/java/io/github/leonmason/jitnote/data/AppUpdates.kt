@@ -1,6 +1,7 @@
 package io.github.leonmason.jitnote.data
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,28 +12,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 
 /**
- * Finds a newer published release of this app on GitHub and downloads its APK.
- * Talks to GitHub anonymously: no token and nothing about the user's notes is sent.
+ * Finds a newer version of this app from the latest.json that each release carries on GitHub and on Gitee,
+ * and downloads its APK. Both requests are anonymous: no token, no device identifier, nothing about the
+ * user's notes. Not responsible for installing; the UI hands the APK to the system installer.
  */
 class AppUpdates(
     private val cacheDir: File,
     private val store: StateStore,
     val currentVersion: String,
 ) {
-    data class Release(val version: String, val notes: String, val apkUrl: String, val apkSize: Long)
+    /** [apkUrls] are tried in order: Gitee first, GitHub as the fallback (design.md「检查更新」). */
+    data class Release(
+        val version: String,
+        val notes: String,
+        val apkUrls: List<String>,
+        val apkSize: Long,
+        val apkSha256: String,
+    )
 
     sealed interface State {
         data object Idle : State
@@ -75,7 +84,7 @@ class AppUpdates(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                State.Failed("连不上 GitHub，请检查网络后再试。", null)
+                State.Failed("检查更新没有成功，请检查网络后再试。", null)
             }
         }
     }
@@ -100,23 +109,26 @@ class AppUpdates(
         _state.value = State.Idle
     }
 
-    /** The newest public release if it is newer than this app, else null. */
-    private fun latestRelease(): Release? {
-        val conn = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
+    /**
+     * The newest version if it is newer than this app, else null. Asks GitHub and Gitee at once and takes
+     * whichever answers first, so users who cannot reach GitHub do not wait for it to time out.
+     * The requests run in [scope], not in the caller's job: the slower one is left to finish, because each
+     * download of latest.json on GitHub is what estimates daily users (design.md「检查更新」).
+     */
+    private suspend fun latestRelease(): Release? {
+        val release = firstSuccess(scope, MANIFEST_URLS.map { url -> { parseManifest(fetchText(url), PLATFORM) } })
+        return release?.takeIf { isNewer(it.version, currentVersion) }
+    }
+
+    private fun fetchText(url: String): String {
+        // Both sites redirect to their file hosts; HttpURLConnection follows https → https.
+        val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 20_000
             conn.readTimeout = 30_000
-            conn.setRequestProperty("User-Agent", "Jitnote-Android")
-            conn.setRequestProperty("Accept", "application/vnd.github+json")
-            conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            val code = conn.responseCode
-            // No release published yet.
-            if (code == 404) return null
-            if (code !in 200..299) throw IOException("GitHub returned $code")
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = runCatching { Json.parseToJsonElement(text) as JsonObject }.getOrNull()
-                ?: throw IOException("Unreadable release")
-            return parseRelease(json)?.takeIf { isNewer(it.version, currentVersion) }
+            conn.setRequestProperty("User-Agent", USER_AGENT)
+            if (conn.responseCode !in 200..299) throw IOException("$url returned ${conn.responseCode}")
+            return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
         }
@@ -128,15 +140,23 @@ class AppUpdates(
         dir.mkdirs()
         val apk = File(dir, "jitnote-${release.version}.apk")
         val part = File(dir, apk.name + ".part")
-        // GitHub redirects the download to its file host; HttpURLConnection follows https → https.
-        val conn = URL(release.apkUrl).openConnection() as HttpURLConnection
+        downloadVerified(release.apkUrls, part, release.apkSize, release.apkSha256) { url, file ->
+            _state.value = State.Downloading(release, 0)
+            fetchFile(url, file) { total -> _state.value = State.Downloading(release, total) }
+        }
+        if (!part.renameTo(apk)) throw IOException("Could not save the download")
+        return apk
+    }
+
+    private suspend fun fetchFile(url: String, file: File, progress: (Long) -> Unit) {
+        val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 20_000
             conn.readTimeout = 60_000
-            conn.setRequestProperty("User-Agent", "Jitnote-Android")
+            conn.setRequestProperty("User-Agent", USER_AGENT)
             if (conn.responseCode !in 200..299) throw IOException("Download returned ${conn.responseCode}")
             conn.inputStream.use { input ->
-                part.outputStream().use { output ->
+                file.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     var total = 0L
                     var lastShown = 0L
@@ -148,43 +168,115 @@ class AppUpdates(
                         total += n
                         if (total - lastShown >= 256 * 1024) {
                             lastShown = total
-                            _state.value = State.Downloading(release, total)
+                            progress(total)
                         }
                     }
                 }
             }
-        } catch (e: Exception) {
-            part.delete()
-            throw e
         } finally {
             conn.disconnect()
         }
-        if (release.apkSize > 0 && part.length() != release.apkSize) {
-            part.delete()
-            throw IOException("Incomplete download")
-        }
-        if (!part.renameTo(apk)) throw IOException("Could not save the download")
-        return apk
     }
 
     companion object {
         const val REPO = "leon-mason/jitnote"
+        private const val USER_AGENT = "Jitnote-Android"
         private const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
+        private const val PLATFORM = "android"
 
-        /** Reads a GitHub release; null when it has no APK or is a draft or pre-release. */
-        internal fun parseRelease(release: JsonObject): Release? {
-            if (release.boolean("draft") == true || release.boolean("prerelease") == true) return null
-            val version = release.string("tag_name")?.removePrefix("v") ?: return null
-            val apk = (release["assets"] as? JsonArray).orEmpty()
-                .filterIsInstance<JsonObject>()
-                .firstOrNull { it.string("name")?.endsWith(".apk") == true }
-                ?: return null
+        /**
+         * Fixed addresses of the newest release's latest.json. scripts/release.sh uploads it last, after every
+         * package is on both sites. Gitee has no draft releases and counts the release edited last as the
+         * newest, which is why the release script never edits an older one.
+         */
+        internal val MANIFEST_URLS = listOf(
+            "https://gitee.com/shitoupapa/jitnote/releases/download/latest/latest.json",
+            "https://github.com/$REPO/releases/latest/download/latest.json",
+        )
+
+        /**
+         * Reads latest.json as written by scripts/release.sh. Throws when the file is unreadable, so the
+         * other site's answer can be used instead; null when it lists no usable package for [platform].
+         */
+        internal fun parseManifest(text: String, platform: String): Release? {
+            val json = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+                ?: throw IOException("Unreadable latest.json")
+            val version = json.string("version")?.removePrefix("v") ?: throw IOException("latest.json has no version")
+            val pkg = (json["packages"] as? JsonObject)?.get(platform) as? JsonObject ?: return null
+            val urls = listOfNotNull(pkg.string("gitee"), pkg.string("github")).filter { it.startsWith("https://") }
+            val size = (pkg["size"] as? JsonPrimitive)?.longOrNull ?: return null
+            val sha256 = pkg.string("sha256")?.lowercase()?.takeIf { SHA256.matches(it) } ?: return null
+            if (urls.isEmpty()) return null
             return Release(
                 version = version,
-                notes = release.string("body").orEmpty().replace("\r\n", "\n").trim(),
-                apkUrl = apk.string("browser_download_url") ?: return null,
-                apkSize = (apk["size"] as? JsonPrimitive)?.longOrNull ?: 0L,
+                notes = json.string("notes").orEmpty().replace("\r\n", "\n").trim(),
+                apkUrls = urls,
+                apkSize = size,
+                apkSha256 = sha256,
             )
+        }
+
+        private val SHA256 = Regex("[0-9a-f]{64}")
+
+        /**
+         * Runs every attempt in [scope] and returns the first result; throws only when all of them failed.
+         * The others are not cancelled.
+         */
+        internal suspend fun <T> firstSuccess(scope: CoroutineScope, attempts: List<suspend () -> T>): T {
+            val winner = CompletableDeferred<T>()
+            val failed = AtomicInteger()
+            for (attempt in attempts) {
+                scope.launch {
+                    try {
+                        winner.complete(attempt())
+                    } catch (e: Throwable) {
+                        if (failed.incrementAndGet() == attempts.size) winner.completeExceptionally(e)
+                        if (e is CancellationException) throw e
+                    }
+                }
+            }
+            return winner.await()
+        }
+
+        /**
+         * Downloads into [file] from each URL in turn until one gives exactly [size] bytes with the expected
+         * SHA-256. A package that does not match is never kept, so it can never be installed.
+         */
+        internal suspend fun downloadVerified(
+            urls: List<String>,
+            file: File,
+            size: Long,
+            sha256: String,
+            fetch: suspend (String, File) -> Unit,
+        ) {
+            var last: Exception = IOException("No download address")
+            for (url in urls) {
+                try {
+                    fetch(url, file)
+                    if (file.length() == size && sha256Of(file) == sha256) return
+                    last = IOException("$url gave a different file")
+                } catch (e: CancellationException) {
+                    file.delete()
+                    throw e
+                } catch (e: Exception) {
+                    last = e
+                }
+                file.delete()
+            }
+            throw last
+        }
+
+        internal fun sha256Of(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    digest.update(buffer, 0, n)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
         }
 
         /** Compares dotted version numbers, ignoring a leading "v"; unreadable versions are never newer. */
@@ -203,7 +295,5 @@ class AppUpdates(
 
         private fun JsonObject.string(key: String): String? =
             (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
-
-        private fun JsonObject.boolean(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
     }
 }

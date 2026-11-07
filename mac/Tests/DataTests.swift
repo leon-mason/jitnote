@@ -169,10 +169,6 @@ enum NoteAssetsTests {
 }
 
 enum AppUpdatesTests {
-    static func json(_ text: String) -> [String: Any] {
-        try! JSONSerialization.jsonObject(with: Data(text.utf8)) as! [String: Any]
-    }
-
     static let all: [TestCase] = [
         TestCase("comparesVersionsNumerically") { _ in
             try expect(AppUpdates.isNewer("v0.2.0", than: "0.1.0"))
@@ -184,64 +180,111 @@ enum AppUpdatesTests {
             try expect(!AppUpdates.isNewer("0.0.9", than: "0.1.0"))
             try expect(!AppUpdates.isNewer("not-a-version", than: "0.1.0"))
         },
-        TestCase("readsTheMacBuildFromARelease") { _ in
-            let release = AppUpdates.parseRelease(json("""
-            {
-              "tag_name": "v0.3.0", "draft": false, "prerelease": false,
-              "body": "· 有 Mac 版了\\r\\n· 修复同步偶尔失败\\r\\n",
-              "assets": [
-                {"name": "jitnote-0.3.0.apk", "size": 2400000, "browser_download_url": "https://example.com/a.apk"},
-                {"name": "Jitnote-mac-0.3.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"}
-              ]
-            }
-            """))!
-            try expectEqual(release.version, "0.3.0")
-            try expectEqual(release.notes, "· 有 Mac 版了\n· 修复同步偶尔失败")
-            try expectEqual(release.downloadUrl.absoluteString, "https://example.com/m.zip")
-            try expectEqual(release.size, 9_000_000)
-            try expect(!release.isDiskImage)
-        },
-        TestCase("picksThePackageForThisMacsChip") { _ in
-            let release = json("""
-            {
-              "tag_name": "v0.5.0",
-              "assets": [
-                {"name": "jitnote-0.5.0.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"},
-                {"name": "Jitnote-mac-intel-0.5.0.dmg", "size": 2, "browser_download_url": "https://example.com/intel.dmg"},
-                {"name": "Jitnote-mac-apple-silicon-0.5.0.zip", "size": 3, "browser_download_url": "https://example.com/arm.zip"},
-                {"name": "Jitnote-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}
-              ]
-            }
-            """)
-            try expectEqual(AppUpdates.parseRelease(release, chip: "apple-silicon")!.downloadUrl.absoluteString, "https://example.com/arm.dmg")
-            try expectEqual(AppUpdates.parseRelease(release, chip: "intel")!.downloadUrl.absoluteString, "https://example.com/intel.dmg")
-            let armOnly = json(#"{"tag_name": "v0.5.0", "assets": [{"name": "Jitnote-mac-apple-silicon-0.5.0.dmg", "size": 4, "browser_download_url": "https://example.com/arm.dmg"}]}"#)
-            try expect(AppUpdates.parseRelease(armOnly, chip: "intel") == nil)
-        },
-
-        TestCase("prefersTheDiskImageWhenThereIsOne") { _ in
-            let release = AppUpdates.parseRelease(json("""
-            {
-              "tag_name": "v0.4.0",
-              "assets": [
-                {"name": "Jitnote-mac-0.4.0.zip", "size": 9000000, "browser_download_url": "https://example.com/m.zip"},
-                {"name": "Jitnote-mac-0.4.0.dmg", "size": 9500000, "browser_download_url": "https://example.com/m.dmg"}
-              ]
-            }
-            """))!
-            try expectEqual(release.downloadUrl.absoluteString, "https://example.com/m.dmg")
-            try expectEqual(release.size, 9_500_000)
+        TestCase("readsTheMacBuildFromLatestJson") { _ in
+            let release = try AppUpdates.parseManifest(manifest, package: "mac-apple-silicon")!
+            try expectEqual(release.version, "0.11.0")
+            try expectEqual(release.notes, "· 插入图片\n· 修复同步偶尔失败")
+            // Gitee first: it is the fast one for most users; GitHub is the fallback.
+            try expectEqual(release.downloadUrls.map(\.absoluteString), [
+                "https://gitee.com/shitoupapa/jitnote/releases/download/v0.11.0/Jitnote-mac-apple-silicon-0.11.0.dmg",
+                "https://github.com/leon-mason/jitnote/releases/download/v0.11.0/Jitnote-mac-apple-silicon-0.11.0.dmg",
+            ])
+            try expectEqual(release.size, 5_911_784)
+            try expectEqual(release.sha256, shaOfHello)
             try expect(release.isDiskImage)
+            try expect(try AppUpdates.parseManifest(manifest, package: "mac-intel") == nil)
         },
-        TestCase("ignoresReleasesWithoutAMacBuildOrNotYetPublic") { _ in
-            let apkOnly = #"[{"name": "a.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"}]"#
-            let mac = #"[{"name": "Jitnote-mac-1.zip", "size": 1, "browser_download_url": "https://example.com/m.zip"}]"#
-            try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "assets": \#(apkOnly)}"#)) == nil)
-            try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "prerelease": true, "assets": \#(mac)}"#)) == nil)
-            try expect(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "draft": true, "assets": \#(mac)}"#)) == nil)
-            try expectEqual(AppUpdates.parseRelease(json(#"{"tag_name": "v0.2.0", "body": null, "assets": \#(mac)}"#))!.notes, "")
+        TestCase("rejectsUnreadableLatestJsonAndIgnoresIncompletePackages") { _ in
+            try expect((try? AppUpdates.parseManifest(Data("<html>Not Found</html>".utf8), package: "mac-apple-silicon")) == nil)
+            try expect((try? AppUpdates.parseManifest(Data(#"{"packages": {}}"#.utf8), package: "mac-apple-silicon")) == nil)
+            try expect(try AppUpdates.parseManifest(Data(#"{"version": "0.11.0", "packages": {}}"#.utf8), package: "mac-apple-silicon") == nil)
+            let noChecksum = Data(String(decoding: manifest, as: UTF8.self).replacingOccurrences(of: shaOfHello, with: "nope").utf8)
+            try expect(try AppUpdates.parseManifest(noChecksum, package: "mac-apple-silicon") == nil)
+        },
+        TestCase("takesTheFirstAnswerWithoutCancellingTheOther") { _ in
+            let slowFinished = Flag()
+            let attempts: [@Sendable () async throws -> String] = [
+                { throw URLError(.cannotConnectToHost) },
+                { try await Task.sleep(nanoseconds: 50_000_000); return "github" },
+                { try await Task.sleep(nanoseconds: 300_000_000); slowFinished.set(); return "slow" },
+            ]
+            let result = try waitFor { try await AppUpdates.firstSuccess(attempts) }
+            try expectEqual(result, "github")
+            // The slow request still runs to the end: GitHub counts it as a download.
+            let deadline = Date().addingTimeInterval(5)
+            while !slowFinished.value && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+            try expect(slowFinished.value)
+        },
+        TestCase("failsOnlyWhenEverySiteFailed") { _ in
+            let attempts: [@Sendable () async throws -> String] = [
+                { throw URLError(.cannotConnectToHost) },
+                { try await Task.sleep(nanoseconds: 20_000_000); throw URLError(.timedOut) },
+            ]
+            let outcome = try? waitFor { try await AppUpdates.firstSuccess(attempts) }
+            try expect(outcome == nil)
+        },
+        TestCase("keepsOnlyADownloadWithTheRightChecksum") { dir in
+            let file = dir.appendingPathComponent("update.dmg")
+            let gitee = URL(string: "https://gitee.com/x.dmg")!
+            let github = URL(string: "https://github.com/x.dmg")!
+            var tried: [URL] = []
+            // Gitee hands out a different file, GitHub the right one: GitHub's is kept.
+            try waitFor {
+                try await AppUpdates.downloadVerified([gitee, github], to: file, size: 5, sha256: shaOfHello) { url, target in
+                    tried.append(url)
+                    try Data((url == gitee ? "HELLO" : "hello").utf8).write(to: target)
+                }
+            }
+            try expectEqual(tried, [gitee, github])
+            try expectEqual(try String(contentsOf: file), "hello")
+            // Nothing matches: no file is left behind to install.
+            let outcome: Void? = try? waitFor {
+                try await AppUpdates.downloadVerified([gitee, github], to: file, size: 5, sha256: shaOfHello) { _, target in
+                    try Data("HELLO".utf8).write(to: target)
+                }
+            }
+            try expect(outcome == nil)
+            try expect(!FileManager.default.fileExists(atPath: file.path))
         },
     ]
+
+    /// SHA-256 of the five bytes "hello".
+    static let shaOfHello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+
+    static let manifest = Data("""
+    {
+      "format": 1, "version": "0.11.0", "notes": "· 插入图片\\r\\n· 修复同步偶尔失败\\n",
+      "packages": {
+        "android": {"name": "jitnote-0.11.0.apk", "size": 2557137, "sha256": "\(shaOfHello)",
+                    "gitee": "https://gitee.com/a.apk", "github": "https://github.com/a.apk"},
+        "mac-apple-silicon": {
+          "name": "Jitnote-mac-apple-silicon-0.11.0.dmg", "size": 5911784, "sha256": "\(shaOfHello)",
+          "gitee": "https://gitee.com/shitoupapa/jitnote/releases/download/v0.11.0/Jitnote-mac-apple-silicon-0.11.0.dmg",
+          "github": "https://github.com/leon-mason/jitnote/releases/download/v0.11.0/Jitnote-mac-apple-silicon-0.11.0.dmg"
+        }
+      }
+    }
+    """.utf8)
+}
+
+/// Thread-safe flag for tests whose work finishes on another task.
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isSet = false
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return isSet }
+    func set() { lock.lock(); isSet = true; lock.unlock() }
+}
+
+/// Runs async code from the synchronous test runner.
+func waitFor<T>(_ body: @escaping () async throws -> T) throws -> T {
+    let done = DispatchSemaphore(value: 0)
+    var outcome: Result<T, Error>!
+    Task.detached {
+        do { outcome = .success(try await body()) } catch { outcome = .failure(error) }
+        done.signal()
+    }
+    done.wait()
+    return try outcome.get()
 }
 
 enum HostingApiTests {

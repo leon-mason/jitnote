@@ -372,47 +372,103 @@ public class HostingAndUpdateTests
     }
 
     [Fact]
-    public void PicksTheWindowsPackageAndComparesVersions()
+    public void ComparesVersionsAndSpacesChecksOutByADay()
     {
         Assert.True(AppUpdates.IsNewer("v0.2.0", "0.1.0"));
         Assert.True(AppUpdates.IsNewer("0.10.0", "0.9.3"));
         Assert.True(AppUpdates.IsNewer("1.0", "0.9.9"));
         Assert.False(AppUpdates.IsNewer("v0.1.0", "0.1.0"));
         Assert.False(AppUpdates.IsNewer("not-a-version", "0.1.0"));
-        var release = AppUpdates.ParseWindowsRelease("""
-        {
-          "tag_name": "v0.7.0", "draft": false, "prerelease": false,
-          "body": "· Windows\r\n",
-          "assets": [
-            {"name": "jitnote-0.7.0.apk", "size": 1, "browser_download_url": "https://example.com/a.apk"},
-            {"name": "Jitnote-mac-apple-silicon-0.7.0.dmg", "size": 2, "browser_download_url": "https://example.com/m.dmg"},
-            {"name": "Jitnote-windows-x64-0.7.0.zip", "size": 9, "browser_download_url": "https://example.com/w.zip"}
-          ]
-        }
-        """)!;
-        Assert.Equal("0.7.0", release.Version);
-        Assert.Equal("https://example.com/w.zip", release.DownloadUrl);
-        Assert.Equal(9, release.Size);
-        Assert.Equal("· Windows", release.Notes);
-        // The single exe wins over the zip that is still published for 0.7.0 and 0.8.0, whatever the order.
-        var withExe = AppUpdates.ParseWindowsRelease("""
-        {
-          "tag_name": "v0.9.0",
-          "assets": [
-            {"name": "Jitnote-windows-x64-0.9.0.zip", "size": 9, "browser_download_url": "https://example.com/w.zip"},
-            {"name": "Jitnote-mac-apple-silicon-0.9.0.dmg", "size": 2, "browser_download_url": "https://example.com/m.dmg"},
-            {"name": "Jitnote-windows-x64-0.9.0.exe", "size": 8, "browser_download_url": "https://example.com/w.exe"}
-          ]
-        }
-        """)!;
-        Assert.Equal("https://example.com/w.exe", withExe.DownloadUrl);
-        Assert.Equal(8, withExe.Size);
-        Assert.Equal("https://example.com/w.exe", AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.9.0","assets":[{"name":"Jitnote-windows-x64-0.9.0.exe","size":8,"browser_download_url":"https://example.com/w.exe"}]}""")!.DownloadUrl);
-        Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","assets":[{"name":"Jitnote-mac-0.7.0.dmg","size":1,"browser_download_url":"https://example.com/m.dmg"}]}"""));
-        Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","prerelease":true,"assets":[{"name":"Jitnote-windows-x64-0.7.0.zip","size":1,"browser_download_url":"https://example.com/w.zip"}]}"""));
-        Assert.Null(AppUpdates.ParseWindowsRelease("""{"tag_name":"v0.7.0","draft":true,"assets":[{"name":"Jitnote-windows-x64-0.7.0.zip","size":1,"browser_download_url":"https://example.com/w.zip"}]}"""));
         Assert.False(AppUpdates.IsDue(AppJson.NowMillis(), AppJson.NowMillis()));
         Assert.True(AppUpdates.IsDue(null, AppJson.NowMillis()));
+    }
+
+    /// <summary>SHA-256 of the five bytes "hello".</summary>
+    const string ShaOfHello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+
+    static readonly string Manifest = $$"""
+    {
+      "format": 1, "version": "0.11.0", "notes": "· Windows\r\n· 修复同步偶尔失败\n",
+      "packages": {
+        "android": {"name": "jitnote-0.11.0.apk", "size": 1, "sha256": "{{ShaOfHello}}",
+                    "gitee": "https://gitee.com/a.apk", "github": "https://github.com/a.apk"},
+        "windows-x64": {
+          "name": "Jitnote-windows-x64-0.11.0.exe", "size": 97911742, "sha256": "{{ShaOfHello}}",
+          "gitee": "https://gitee.com/shitoupapa/jitnote/releases/download/v0.11.0/Jitnote-windows-x64-0.11.0.exe",
+          "github": "https://github.com/leon-mason/jitnote/releases/download/v0.11.0/Jitnote-windows-x64-0.11.0.exe"
+        }
+      }
+    }
+    """;
+
+    [Fact]
+    public void ReadsTheWindowsPackageFromLatestJson()
+    {
+        var release = AppUpdates.ParseManifest(Manifest)!;
+        Assert.Equal("0.11.0", release.Version);
+        Assert.Equal("· Windows\n· 修复同步偶尔失败", release.Notes);
+        // Gitee first: it is the fast one for most users; GitHub is the fallback.
+        Assert.Equal(new[]
+        {
+            "https://gitee.com/shitoupapa/jitnote/releases/download/v0.11.0/Jitnote-windows-x64-0.11.0.exe",
+            "https://github.com/leon-mason/jitnote/releases/download/v0.11.0/Jitnote-windows-x64-0.11.0.exe",
+        }, release.DownloadUrls);
+        Assert.Equal(97911742, release.Size);
+        Assert.Equal(ShaOfHello, release.Sha256);
+    }
+
+    [Fact]
+    public void RejectsUnreadableLatestJsonAndIgnoresIncompletePackages()
+    {
+        Assert.Throws<InvalidDataException>(() => AppUpdates.ParseManifest("<html>Not Found</html>"));
+        Assert.Throws<InvalidDataException>(() => AppUpdates.ParseManifest("""{"packages": {}}"""));
+        Assert.Null(AppUpdates.ParseManifest("""{"version": "0.11.0", "packages": {}}"""));
+        Assert.Null(AppUpdates.ParseManifest(Manifest, "windows-arm64"));
+        Assert.Null(AppUpdates.ParseManifest(Manifest.Replace(ShaOfHello, "nope")));
+    }
+
+    [Fact]
+    public async Task TakesTheFirstAnswerWithoutCancellingTheOther()
+    {
+        var slowFinished = new TaskCompletionSource();
+        var result = await AppUpdates.FirstSuccess(new List<Func<Task<string>>>
+        {
+            () => throw new HttpRequestException("Gitee unreachable"),
+            async () => { await Task.Delay(50); return "github"; },
+            async () => { await Task.Delay(300); slowFinished.SetResult(); return "slow"; },
+        });
+        Assert.Equal("github", result);
+        // The slow request still runs to the end: GitHub counts it as a download.
+        await slowFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task FailsOnlyWhenEverySiteFailed()
+    {
+        await Assert.ThrowsAsync<TimeoutException>(() => AppUpdates.FirstSuccess(new List<Func<Task<string>>>
+        {
+            () => throw new HttpRequestException("a"),
+            async () => { await Task.Delay(20); throw new TimeoutException("b"); },
+        }));
+    }
+
+    [Fact]
+    public async Task KeepsOnlyADownloadWithTheRightChecksum()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "jitnote-update-" + Guid.NewGuid().ToString("n") + ".exe");
+        var tried = new List<string>();
+        // Gitee hands out a different file, GitHub the right one: GitHub's is kept.
+        await AppUpdates.DownloadVerified(["gitee", "github"], file, 5, ShaOfHello, async (url, target) =>
+        {
+            tried.Add(url);
+            await File.WriteAllTextAsync(target, url == "gitee" ? "HELLO" : "hello");
+        });
+        Assert.Equal(["gitee", "github"], tried);
+        Assert.Equal("hello", File.ReadAllText(file));
+        // Nothing matches: no file is left behind to open.
+        await Assert.ThrowsAsync<IOException>(() => AppUpdates.DownloadVerified(["gitee", "github"], file, 5, ShaOfHello,
+            (_, target) => File.WriteAllTextAsync(target, "HELLO")));
+        Assert.False(File.Exists(file));
     }
 
     [Fact]

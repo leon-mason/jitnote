@@ -5,7 +5,7 @@
 Jitnote (记特, pronounced like "Git") keeps your notes in **your own** private GitHub / Gitee repositories, on Android, on the Mac, and on Windows 11.
 
 - **Your data stays yours**: notes live only in your own repositories and devices; accounts, tokens and content never pass through a third party.
-- **No server**: there is no server of ours, and you don't need one either. Fully open source, no data collection.
+- **No server**: there is no server of ours, and you don't need one either. Fully open source; the app reports nothing.
 - **Built for working with AI**: notes are plain Markdown files in a real Git repository, so AI tools such as Claude Code or Cursor can organize, rewrite and search them directly; push, tap sync on the phone, and the changes are there.
 
 - **Every notebook is a real Git repository**: the phone keeps a full `.git` with real commit history. Clone it on your computer, edit with any editor or AI tool (Cursor, Claude Code, …), push, and tap sync on the phone to get the changes.
@@ -53,7 +53,7 @@ When a new version is out, the app offers to update when you open it (it checks 
 - Required token permissions: for a Gitee personal token, keep the default selection (at least `user_info` and `projects`); for a GitHub classic token, select `repo`.
 - These permissions grant read/write access to **all** repositories in your account. Only use the token on your own phone, and delete it in your Gitee / GitHub settings whenever you no longer need it.
 - The token is encrypted with the Android Keystore and stored only on the phone, with system backup disabled. On the Mac it is kept in the local keychain. On Windows it is kept in the current user's Credential Manager, on this computer only, and it does not roam.
-- The app only talks to your own Gitee / GitHub account. The one exception is the update check: at most once a day, it asks this project's GitHub page anonymously whether there is a new version. No token and no note content is sent. There are no analytics or ads.
+- The app only talks to your own Gitee / GitHub account. The one exception is the update check: at most once a day, it anonymously downloads `latest.json`, a small file describing this project's newest release on GitHub and Gitee, and the installer if there is a new version. No token, no device identifier and no note content is sent. GitHub counts how often that file is downloaded; we only use the total to estimate roughly how many people use the app, and cannot see who they are. There are no ads.
 
 ## Usage (Mac)
 
