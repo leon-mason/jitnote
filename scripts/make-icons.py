@@ -110,10 +110,10 @@ def mac(tile, art, coef):
     # macOS icon grid: on a 1024 canvas the shape is 824 wide, with room left for its shadow.
     side, size = 824, 1024
     origin = (size - side) // 2
-    # The logo's artwork nearly touches its own edge, which looks cramped at icon size. Android's mask
-    # leaves it more room, so the artwork takes the same share of the shape here: launchers show 72dp of
-    # the 108dp adaptive icon. See "App 图标" in docs/design.md.
-    art_side = round(side * android_tile_dp(art) / 72)
+    # The logo's artwork nearly touches its own edge, which looks cramped at icon size, but Android's
+    # margins (84%) made it look clearly smaller than its neighbours in the Dock. 92% is the size picked
+    # by eye against system icons. See "App 图标" in docs/design.md.
+    art_side = round(side * 0.92)
     art_origin = (side - art_side) // 2
     shape = gradient(coef, side, art_origin, art_side)
     shape.alpha_composite(feather_rim(tile, art).resize((art_side, art_side), Image.LANCZOS), (art_origin, art_origin))
